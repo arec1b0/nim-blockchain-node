@@ -1,0 +1,39 @@
+---
+alwaysApply: true
+---
+
+# Nim Blockchain Node Architecture Guide
+
+This project follows a **4-layer modular architecture** as described in [docs/architecture.md](mdc:docs/architecture.md):
+
+## 🧱 Core Layers
+
+### 1. Core Engine Layer (`src/core_engine/`)
+
+- **Consensus** ([consensus.nim](mdc:src/core_engine/consensus.nim)): Hybrid PoS + BFT consensus with validator management
+- **State Management** ([state_management.nim](mdc:src/core_engine/state_management.nim)): Account balances, nonces, state transitions  
+- **Virtual Machine** ([vm.nim](mdc:src/core_engine/vm.nim)): Transaction execution with gas metering
+
+### 2. Cryptography Layer (`src/cryptography/`)
+
+- **Key Management** ([key_management.nim](mdc:src/cryptography/key_management.nim)): Key generation and signing
+- **Signature Verification** ([signature_verification.nim](mdc:src/cryptography/signature_verification.nim)): Digital signature validation
+- **Zero-Knowledge Proofs** ([zk_proofs.nim](mdc:src/cryptography/zk_proofs.nim)): Privacy-preserving operations
+
+### 3. Network Layer (`src/network/`)
+
+- **P2P Communication** ([p2p.nim](mdc:src/network/p2p.nim)): Peer discovery and connection management
+- **Mempool** ([mempool.nim](mdc:src/network/mempool.nim)): Transaction pool management
+- **Block Propagation** ([block_propagation.nim](mdc:src/network/block_propagation.nim)): Network-wide block distribution
+
+### 4. Storage Layer (`src/storage/`)
+
+- **Blockchain DB** ([blockchain_db.nim](mdc:src/storage/blockchain_db.nim)): Immutable block storage
+- **Index DB** ([index_db.nim](mdc:src/storage/index_db.nim)): Transaction indexing for fast lookup
+- **State DB** ([state_db.nim](mdc:src/storage/state_db.nim)): Current blockchain state management
+
+## 🔗 Key Integration Points
+
+- Entry point: [src/main.nim](mdc:src/main.nim) orchestrates all components
+- Build configuration: [nim_blockchain_node.nimble](mdc:nim_blockchain_node.nimble)
+- Tests organized by layer in [tests/](mdc:tests/)

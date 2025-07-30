@@ -1,61 +1,95 @@
-# ======================================================
-# Module: BlockchainDB
-# Role: Management and retrieval of blockchain blocks
-# Author's Perspective: System Architect & Lead Cryptographer
-# ======================================================
+## Blockchain database for immutable block storage and retrieval.
+## Provides efficient access to blockchain blocks by height.
 
-import tables
+import std/[tables, options]
 
-# ------------------------------------------------------
-# Type: BlockchainDB
-# Purpose:
-#   Manages storage and retrieval of blockchain blocks explicitly indexed by their block height.
-#
-# Fields:
-# - blocks: Hash table explicitly mapping block heights to their associated data, ensuring fast access and efficient storage management.
-# Security and Architectural Considerations:
-#   - Simplified model clearly represents block storage logic; production implementations should use cryptographically secure storage mechanisms.
-# ------------------------------------------------------
 type
+  BlockHeight* = Natural
+  BlockData* = string
+  BlockHash* = string
+  
+  StoredBlock* = object
+    height*: BlockHeight
+    data*: BlockData
+    hash*: BlockHash
+    timestamp*: int64
+
   BlockchainDB* = ref object
-    blocks*: Table[int, string]  # Block data storage explicitly indexed by height
+    blocks*: Table[BlockHeight, StoredBlock]
+    blockHashes*: Table[BlockHash, BlockHeight]  # Hash to height mapping
+    currentHeight*: BlockHeight
 
-# ------------------------------------------------------
-# Proc: initializeBlockchainDB
-# Purpose:
-#   Initializes a new, empty blockchain database.
-# Security and Architectural Considerations:
-#   - Explicit initialization ensures clear and secure blockchain data management from genesis.
-# ------------------------------------------------------
-proc initializeBlockchainDB*(): BlockchainDB =
-  BlockchainDB(blocks: initTable[int, string]())
+proc newBlockchainDB*(): BlockchainDB =
+  ## Creates a new blockchain database.
+  BlockchainDB(
+    blocks: initTable[BlockHeight, StoredBlock](),
+    blockHashes: initTable[BlockHash, BlockHeight](),
+    currentHeight: 0
+  )
 
-# ------------------------------------------------------
-# Proc: addBlock
-# Purpose:
-#   Adds a new block to the blockchain database.
-# Security and Architectural Considerations:
-#   - Clear block addition procedure supports reliable block management and secure state tracking.
-# ------------------------------------------------------
-proc addBlock*(db: BlockchainDB, height: int, data: string): bool =
-  if db.blocks.hasKey(height):
-    return false  # explicitly handle duplicates
-  db.blocks[height] = data
-  true  # explicit success indicator
+proc addBlock*(db: BlockchainDB, height: BlockHeight, data: BlockData, 
+              hash: BlockHash = "", timestamp: int64 = 0): bool =
+  ## Adds a new block to the blockchain database.
+  if height in db.blocks:
+    return false  # Block already exists
+    
+  let blockHash = if hash.len > 0: hash else: "hash_" & $height
+  let storedBlock = StoredBlock(
+    height: height,
+    data: data,
+    hash: blockHash,
+    timestamp: timestamp
+  )
+  
+  db.blocks[height] = storedBlock
+  db.blockHashes[blockHash] = height
+  
+  if height > db.currentHeight:
+    db.currentHeight = height
+    
+  true
 
-# ------------------------------------------------------
-# Proc: getBlock
-# Purpose:
-#   Retrieves block data at a given height.
-# Security and Architectural Considerations:
-#   - Explicit block retrieval ensures efficient and secure access, essential for validation, consensus, and auditing.
-# ------------------------------------------------------
-proc getBlock*(db: BlockchainDB, height: int): string =
-  db.blocks.getOrDefault(height, "")
+proc getBlock*(db: BlockchainDB, height: BlockHeight): Option[StoredBlock] =
+  ## Retrieves a block by height.
+  if height in db.blocks:
+    some(db.blocks[height])
+  else:
+    none(StoredBlock)
 
-# ======================================================
-# Summary (Architectural & Cryptographic Insights):
-# - Explicit block storage mechanism ensures data integrity and availability critical for maintaining blockchain consensus.
-# - Simplified architecture supports clear, maintainable data management, facilitating integration with cryptographically secure storage solutions in production.
-# - Explicit and secure data access promotes transparency, auditability, and resilience against common blockchain attacks.
-# ======================================================
+proc getBlockByHash*(db: BlockchainDB, hash: BlockHash): Option[StoredBlock] =
+  ## Retrieves a block by hash.
+  if hash in db.blockHashes:
+    let height = db.blockHashes[hash]
+    some(db.blocks[height])
+  else:
+    none(StoredBlock)
+
+proc hasBlock*(db: BlockchainDB, height: BlockHeight): bool =
+  ## Checks if a block exists at the given height.
+  height in db.blocks
+
+proc hasBlockWithHash*(db: BlockchainDB, hash: BlockHash): bool =
+  ## Checks if a block with the given hash exists.
+  hash in db.blockHashes
+
+proc getLatestBlock*(db: BlockchainDB): Option[StoredBlock] =
+  ## Returns the latest block in the chain.
+  if db.currentHeight > 0:
+    db.getBlock(db.currentHeight)
+  else:
+    none(StoredBlock)
+
+proc getCurrentHeight*(db: BlockchainDB): BlockHeight =
+  ## Returns the current blockchain height.
+  db.currentHeight
+
+proc getBlockCount*(db: BlockchainDB): int =
+  ## Returns the total number of blocks.
+  db.blocks.len
+
+proc getBlockRange*(db: BlockchainDB, startHeight, endHeight: BlockHeight): seq[StoredBlock] =
+  ## Returns blocks in the specified height range.
+  result = @[]
+  for height in startHeight..min(endHeight, db.currentHeight):
+    if height in db.blocks:
+      result.add(db.blocks[height])

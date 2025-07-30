@@ -7,20 +7,20 @@ suite "Core Engine Tests":
 
   test "Consensus - Validator Management":
     var cons = newConsensus()
-    cons.addValidator(1, 100)
-    cons.addValidator(2, 200)
-    check cons.validatorExists(1)
-    check cons.validatorExists(2)
-    cons.deactivateValidator(1)
+    check cons.addValidator(1, 100)
+    check cons.addValidator(2, 200)
+    check cons.hasValidator(1)
+    check cons.hasValidator(2)
+    check cons.deactivateValidator(1)
     check not cons.isValidatorActive(1)
-    cons.removeValidator(2)
-    check not cons.validatorExists(2)
+    check cons.removeValidator(2)
+    check not cons.hasValidator(2)
     check cons.calculateQuorum() == 1
 
   test "State Management - Account Operations":
     var state = newStateDB()
-    state.createAccount("0xA")
-    check state.accountExists("0xA")
+    state.ensureAccount("0xA")
+    check state.hasAccount("0xA")
     state.setBalance("0xA", 500)
     check state.getBalance("0xA") == 500
     check state.decreaseBalance("0xA", 200)
@@ -36,12 +36,12 @@ suite "Core Engine Tests":
     state.setBalance("Alice", 1000)
     state.setBalance("Bob", 500)
     var vm = newVM(state, 100000)
-    let tx1 = Transaction(sender: "Alice", receiver: "Bob", amount: 100, fee: 10, nonce: 1)
-    let tx2 = Transaction(sender: "Alice", receiver: "Bob", amount: 900, fee: 10, nonce: 2)
-    check vm.applyTx(tx1)
+    let tx1 = Transaction(id: "tx1", sender: "Alice", receiver: "Bob", amount: 100, fee: 10, nonce: 1)
+    let tx2 = Transaction(id: "tx2", sender: "Alice", receiver: "Bob", amount: 900, fee: 10, nonce: 2)
+    check vm.applyTransaction(tx1)
     check state.getBalance("Alice") == 890
     check state.getBalance("Bob") == 600
-    check not vm.applyTx(tx2)
+    check not vm.applyTransaction(tx2)
     check state.getBalance("Alice") == 890
     check vm.gasUsed == 21000
 

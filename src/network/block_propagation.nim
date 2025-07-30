@@ -1,49 +1,74 @@
-# ======================================================
-# Module: Block Propagation
-# Role: Handling network-wide distribution of blockchain blocks
-# Author's Perspective: System Architect & Lead Cryptographer
-# ======================================================
+## Block propagation and network distribution for blockchain consensus.
+## Handles efficient block broadcasting to network peers.
 
-# ------------------------------------------------------
-# Type: Block
-# Purpose:
-#   Represents a blockchain block containing transaction data for propagation.
-# Architectural and Security Considerations:
-#   - Each block has a unique identifier to prevent replay and duplication attacks.
-#   - The data field explicitly stores transaction data or references, crucial for blockchain integrity.
-# ------------------------------------------------------
+import std/times
+
 type
+  BlockId* = string
+  BlockData* = string
+  BlockHeight* = Natural
+  
   Block* = object
-    id*: string      # Unique identifier of the block
-    data*: string    # Transaction data or merkle root
+    id*: BlockId
+    height*: BlockHeight
+    data*: BlockData
+    timestamp*: int64
+    previousHash*: string
 
-# ------------------------------------------------------
-# Proc: propagateBlock
-# Purpose:
-#   Propagates a block across the peer-to-peer network.
-#
-# Parameters:
-# - block: The block to be propagated across the network.
-#
-# Architectural and Security Considerations:
-# - Explicit block propagation ensures consistent blockchain state across distributed nodes.
-# - Timely and efficient block propagation reduces fork risk and maintains network consistency.
-# ------------------------------------------------------
-proc propagateBlock*(blk: Block): bool =
-  ## Explicit placeholder for block propagation logic to peers.
-  echo "Propagating block with ID: ", blk.id
-  # TODO: Implement actual network propagation logic explicitly
-  true  # Return explicit status indicating successful propagation (for placeholder)
-# ------------------------------------------------------
-# Demonstrative Execution Block (for testing purposes only)
-# - Clearly demonstrates functionality by propagating a sample block.
-# - Production implementations must replace placeholder logic with real network communication methods.
-# ------------------------------------------------------
+  PropagationResult* = enum
+    Success, Failed, Timeout, NetworkError
+
+  PropagationStatus* = object
+    result*: PropagationResult
+    peersReached*: int
+    propagationTime*: int64  # milliseconds
+
+proc newBlock*(id: BlockId, height: BlockHeight, data: BlockData, 
+              previousHash: string = ""): Block =
+  ## Creates a new block with current timestamp.
+  Block(
+    id: id,
+    height: height,
+    data: data,
+    timestamp: getTime().toUnix(),
+    previousHash: previousHash
+  )
+
+proc propagateBlock*(blk: Block): PropagationStatus =
+  ## Propagates a block across the peer-to-peer network.
+  ## Note: This is a placeholder implementation.
+  echo "Propagating block: ", blk.id, " at height ", blk.height
+  
+  # Simulate propagation
+  PropagationStatus(
+    result: Success,
+    peersReached: 5,  # Placeholder
+    propagationTime: 100  # Placeholder: 100ms
+  )
+
+proc validateBlockForPropagation*(blk: Block): bool =
+  ## Validates a block before propagation.
+  blk.id.len > 0 and blk.data.len > 0
+
+proc broadcastToAllPeers*(blk: Block): seq[PropagationStatus] =
+  ## Broadcasts block to all known peers.
+  ## Note: Placeholder implementation.
+  result = @[]
+  for i in 1..3:  # Simulate 3 peers
+    result.add(propagateBlock(blk))
+
+proc propagateBlockWithRetry*(blk: Block, maxRetries: int = 3): PropagationStatus =
+  ## Propagates block with retry logic for failed attempts.
+  for attempt in 1..maxRetries:
+    let status = propagateBlock(blk)
+    if status.result == Success:
+      return status
+    
+    echo "Propagation attempt ", attempt, " failed, retrying..."
+  
+  PropagationStatus(result: Failed, peersReached: 0, propagationTime: 0)
+
 when isMainModule:
-  let testBlock = Block(id: "12345", data: "Sample block data")
-  discard propagateBlock(testBlock)
-# ======================================================
-# Summary (Architectural & Cryptographic Insights):
-# - Block propagation explicitly critical for blockchain decentralization and consensus maintenance.
-# - Current explicit implementation serves as a clear reference for future development of efficient, secure networking protocols.
-# ======================================================
+  let testBlock = newBlock("test_block_123", 1, "Sample block data")
+  let status = propagateBlock(testBlock)
+  echo "Propagation result: ", status.result

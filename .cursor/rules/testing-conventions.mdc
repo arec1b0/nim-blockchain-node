@@ -1,0 +1,65 @@
+---
+globs: tests/**/*.nim
+---
+
+# Testing Conventions
+
+## 🧪 Test Organization
+
+### Test Structure
+
+Tests are organized by architectural layer:
+
+- **Unit Tests** ([tests/unit_tests/](mdc:tests/unit_tests/)): Individual module testing
+  - [core_engine_tests.nim](mdc:tests/unit_tests/core_engine_tests.nim): Consensus, state management, VM
+  - [cryptography_tests.nim](mdc:tests/unit_tests/cryptography_tests.nim): Key management, signatures, ZK proofs
+  - [network_tests.nim](mdc:tests/unit_tests/network_tests.nim): P2P, mempool, block propagation
+  - [storage_tests.nim](mdc:tests/unit_tests/storage_tests.nim): Database operations
+- **Integration Tests** ([tests/integration_tests/](mdc:tests/integration_tests/)): End-to-end workflows
+
+### Test Configuration
+
+- Path setup in [tests/config.nims](mdc:tests/config.nims) ensures proper module imports
+- Build tasks defined in [nim_blockchain_node.nimble](mdc:nim_blockchain_node.nimble)
+
+## ✅ Testing Patterns
+
+### Standard Test Structure
+
+```nim
+import unittest
+import ../../src/module_path
+
+suite "Component Tests":
+  test "Specific functionality description":
+    # Setup
+    let/var component = initializeComponent()
+    
+    # Action & Verification
+    check component.operation() == expectedResult
+    check component.state == expectedState
+```
+
+### Key Testing Principles
+
+1. **Explicit state verification**: Test both successful operations and expected failures
+2. **Boundary condition testing**: Test edge cases (empty inputs, duplicates, invalid data)
+3. **Integration flow testing**: Verify component interactions work correctly
+4. **Security validation**: Test duplicate prevention, invalid input handling
+
+### Example Test Patterns
+
+```nim
+# Test duplicate prevention
+check mempool.addTransaction(tx) == true   # First addition succeeds
+check mempool.addTransaction(tx) == false  # Duplicate fails
+
+# Test state consistency
+check state.getBalance("Alice") == 890     # Verify balance after transaction
+check vm.gasUsed == 21000                  # Verify gas consumption
+```
+
+## 🏃 Running Tests
+
+- Single module: `nim c -r tests/unit_tests/core_engine_tests.nim`
+- All tests: `nimble test`

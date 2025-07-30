@@ -1,70 +1,74 @@
-import tables
+import std/tables
 
 type
+  Address* = string
+  Balance* = Natural
+  Nonce* = Natural
+  
   Account* = object
-    balance*: int
-    nonce*: int
+    balance*: Balance
+    nonce*: Nonce
 
   StateDB* = object
-    accounts*: Table[string, Account]
+    accounts*: Table[Address, Account]
 
 proc newStateDB*(): StateDB =
-  StateDB(accounts: initTable[string, Account]())
+  StateDB(accounts: initTable[Address, Account]())
 
-proc createAccount*(s: var StateDB, address: string) =
-  if not s.accounts.hasKey(address):
+proc ensureAccount*(s: var StateDB, address: Address) =
+  if address notin s.accounts:
     s.accounts[address] = Account(balance: 0, nonce: 0)
 
-proc accountExists*(s: StateDB, address: string): bool =
-  s.accounts.hasKey(address)
+proc hasAccount*(s: StateDB, address: Address): bool =
+  address in s.accounts
 
-proc getBalance*(s: StateDB, address: string): int =
-  if s.accounts.hasKey(address):
-    s.accounts[address].balance
-  else:
-    0
+proc getBalance*(s: StateDB, address: Address): Balance =
+  if address in s.accounts: s.accounts[address].balance else: 0
 
-proc setBalance*(s: var StateDB, address: string, amount: int) =
-  if amount < 0:
-    return
-  s.createAccount(address)
+proc setBalance*(s: var StateDB, address: Address, amount: Balance) =
+  s.ensureAccount(address)
   s.accounts[address].balance = amount
 
-proc increaseBalance*(s: var StateDB, address: string, amount: int) =
-  if amount <= 0:
+proc increaseBalance*(s: var StateDB, address: Address, amount: Balance) =
+  if amount == 0:
     return
-  s.createAccount(address)
+  s.ensureAccount(address)
   s.accounts[address].balance += amount
 
-proc decreaseBalance*(s: var StateDB, address: string, amount: int): bool =
-  if amount <= 0 or not s.accounts.hasKey(address):
+proc decreaseBalance*(s: var StateDB, address: Address, amount: Balance): bool =
+  if amount == 0:
+    return true
+  if address notin s.accounts:
     return false
-  let acc = s.accounts[address]
-  if acc.balance < amount:
+  if s.accounts[address].balance < amount:
     return false
   s.accounts[address].balance -= amount
   true
 
-proc getNonce*(s: StateDB, address: string): int =
-  if s.accounts.hasKey(address):
-    s.accounts[address].nonce
-  else:
-    0
+proc getNonce*(s: StateDB, address: Address): Nonce =
+  if address in s.accounts: s.accounts[address].nonce else: 0
 
-proc incrementNonce*(s: var StateDB, address: string): int =
-  s.createAccount(address)
-  s.accounts[address].nonce += 1
+proc incrementNonce*(s: var StateDB, address: Address): Nonce =
+  s.ensureAccount(address)
+  inc s.accounts[address].nonce
   s.accounts[address].nonce
 
-proc resetAccount*(s: var StateDB, address: string) =
-  if s.accounts.hasKey(address):
+proc resetAccount*(s: var StateDB, address: Address): bool =
+  if address in s.accounts:
     s.accounts[address] = Account(balance: 0, nonce: 0)
+    return true
+  false
 
-proc deleteAccount*(s: var StateDB, address: string) =
-  s.accounts.del(address)
+proc deleteAccount*(s: var StateDB, address: Address): bool =
+  if address in s.accounts:
+    s.accounts.del(address)
+    return true
+  false
 
-proc totalSupply*(s: StateDB): int =
-  var total = 0
-  for acc in s.accounts.values:
-    total += acc.balance
-  total
+proc totalSupply*(s: StateDB): Balance =
+  result = 0
+  for account in s.accounts.values:
+    result += account.balance
+
+proc accountCount*(s: StateDB): int =
+  s.accounts.len

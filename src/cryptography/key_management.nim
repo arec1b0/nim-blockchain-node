@@ -1,30 +1,48 @@
-import nimcrypto, nimcrypto/utils, nimcrypto/sysrand, nimcrypto/sha2
+import nimcrypto, nimcrypto/[utils, sysrand, sha2]
 
 type
+  PublicKey* = string
+  PrivateKey* = string
+  Signature* = string
+  Message* = string
+  
   KeyPair* = object
-    publicKey*: string
-    privateKey*: string
+    publicKey*: PublicKey
+    privateKey*: PrivateKey
 
 proc generateKeyPair*(): KeyPair =
-  var privKey: array[32, byte]
-  discard randomBytes(privKey)
-  let pubKey = sha256.digest(privKey)
+  ## Generates a new cryptographic key pair.
+  ## Note: This is a simplified implementation for demonstration.
+  var privateKeyBytes: array[32, byte]
+  discard randomBytes(privateKeyBytes)
+  
+  let publicKeyHash = sha256.digest(privateKeyBytes)
+  
   KeyPair(
-    publicKey: toHex(pubKey.data),
-    privateKey: toHex(privKey)
+    publicKey: toHex(publicKeyHash.data),
+    privateKey: toHex(privateKeyBytes)
   )
 
-proc signMessage*(privateKeyHex, message: string): string =
+proc signMessage*(privateKey: PrivateKey, message: Message): Signature =
+  ## Creates a signature for the given message using the private key.
+  ## Note: This is a simplified implementation for demonstration.
   let
-    privKey = fromHex(privateKeyHex)
+    privKeyBytes = fromHex(privateKey)
     messageBytes = cast[seq[byte]](message.toOpenArrayByte(0, message.high))
-    msgHash = sha256.digest(privKey & messageBytes)
-  toHex(msgHash.data)
+    signatureHash = sha256.digest(privKeyBytes & messageBytes)
+  
+  toHex(signatureHash.data)
 
-proc verifySignature*(publicKeyHex, message, signatureHex: string): bool =
-  let
-    pubKey = fromHex(publicKeyHex)
-    messageBytes = cast[seq[byte]](message.toOpenArrayByte(0, message.high))
-    expectedHash = sha256.digest(pubKey & messageBytes)
-    actualSig = fromHex(signatureHex)
-  expectedHash.data == actualSig
+proc verifySignature*(publicKey: PublicKey, message: Message, signature: Signature): bool =
+  ## Verifies that the signature is valid for the given message and public key.
+  ## Note: This is a simplified implementation for demonstration.
+  try:
+    let
+      pubKeyBytes = fromHex(publicKey)
+      messageBytes = cast[seq[byte]](message.toOpenArrayByte(0, message.high))
+      expectedHash = sha256.digest(pubKeyBytes & messageBytes)
+      actualSignature = fromHex(signature)
+    
+    expectedHash.data == actualSignature
+  except:
+    false

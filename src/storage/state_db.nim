@@ -1,58 +1,92 @@
-# ======================================================
-# Module: StateDB
-# Role: State Management and Storage for Blockchain Nodes
-# Author's Perspective: System Architect & Lead Cryptographer
-# ======================================================
+## Blockchain state database for managing global state variables.
+## Provides key-value storage for blockchain state information.
 
-import tables
+import std/[tables, options]
 
-# ------------------------------------------------------
-# Type: StateDB
-# Purpose:
-#   Stores and manages blockchain state information as key-value pairs.
-#
-# Fields:
-# - states: Explicit key-value store tracking blockchain state data, critical for transaction verification and state consistency.
-# Architectural Considerations:
-#   - Provides efficient access and modification of blockchain state to ensure integrity and consistency.
-# ------------------------------------------------------
 type
+  StateKey* = string
+  StateValue* = int
+  
+  StateEntry* = object
+    value*: StateValue
+    lastModified*: int64  # Block height when last modified
+  
   StateDB* = ref object
-    states*: Table[string, int]  # State data storage for efficient lookup and updates
+    states*: Table[StateKey, StateEntry]
+    version*: int64  # Current state version/block height
 
-# ------------------------------------------------------
-# Proc: initializeStateDB
-# Purpose:
-#   Initializes a new, empty blockchain state database.
-# Security and Architectural Considerations:
-#   - Explicit initialization ensures consistent, secure baseline for blockchain state management.
-# ------------------------------------------------------
-proc initializeStateDB*(): StateDB =
-  StateDB(states: initTable[string, int]())
+proc newStateDB*(version: int64 = 0): StateDB =
+  ## Creates a new state database.
+  StateDB(
+    states: initTable[StateKey, StateEntry](),
+    version: version
+  )
 
-# ------------------------------------------------------
-# Proc: updateState
-# Purpose:
-#   Updates or inserts state information for a given key.
-# Security and Architectural Considerations:
-#   - Explicit state updates ensure accurate state management and secure transactions, essential for maintaining blockchain consensus.
-# ------------------------------------------------------
-proc updateState*(db: StateDB, key: string, value: int) =
-  db.states[key] = value
+proc setState*(db: StateDB, key: StateKey, value: StateValue, 
+              blockHeight: int64 = 0): bool =
+  ## Sets a state value for the given key.
+  let height = if blockHeight > 0: blockHeight else: db.version
+  db.states[key] = StateEntry(
+    value: value,
+    lastModified: height
+  )
+  true
 
-# ------------------------------------------------------
-# Proc: getState
-# Purpose:
-#   Retrieves the state value associated with a specific key.
-# Security and Architectural Considerations:
-#   - Default handling (0 for non-existent keys) explicitly indicates state absence, improving clarity and reliability of blockchain operations.
-# ------------------------------------------------------
-proc getState*(db: StateDB, key: string): int =
-  db.states.getOrDefault(key, 0)
+proc getState*(db: StateDB, key: StateKey): StateValue =
+  ## Retrieves a state value by key, returns 0 if not found.
+  if key in db.states:
+    db.states[key].value
+  else:
+    0
 
-# ======================================================
-# Summary (Architectural & Cryptographic Insights):
-# - Explicit and secure state management is crucial for blockchain reliability, integrity, and consensus accuracy.
-# - Clearly structured data management facilitates cryptographic validation and secure state transitions.
-# - Essential module supporting robust transaction validation and secure blockchain operations.
-# ======================================================
+proc getStateEntry*(db: StateDB, key: StateKey): Option[StateEntry] =
+  ## Retrieves the full state entry with metadata.
+  if key in db.states:
+    some(db.states[key])
+  else:
+    none(StateEntry)
+
+proc hasState*(db: StateDB, key: StateKey): bool =
+  ## Checks if a state key exists.
+  key in db.states
+
+proc deleteState*(db: StateDB, key: StateKey): bool =
+  ## Deletes a state entry.
+  if key in db.states:
+    db.states.del(key)
+    return true
+  false
+
+proc getAllStates*(db: StateDB): Table[StateKey, StateEntry] =
+  ## Returns a copy of all state entries.
+  db.states
+
+proc getStateKeys*(db: StateDB): seq[StateKey] =
+  ## Returns all state keys.
+  result = @[]
+  for key in db.states.keys:
+    result.add(key)
+
+proc getStatesModifiedAfter*(db: StateDB, blockHeight: int64): seq[(StateKey, StateEntry)] =
+  ## Returns states modified after the given block height.
+  result = @[]
+  for key, entry in db.states.pairs:
+    if entry.lastModified > blockHeight:
+      result.add((key, entry))
+
+proc updateVersion*(db: StateDB, newVersion: int64) =
+  ## Updates the state database version.
+  db.version = newVersion
+
+proc getVersion*(db: StateDB): int64 =
+  ## Returns the current state version.
+  db.version
+
+proc stateCount*(db: StateDB): int =
+  ## Returns the number of state entries.
+  db.states.len
+
+proc clear*(db: StateDB) =
+  ## Clears all state data.
+  db.states.clear()
+  db.version = 0

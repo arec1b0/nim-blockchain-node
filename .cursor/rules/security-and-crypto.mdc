@@ -1,0 +1,77 @@
+---
+globs: src/cryptography/*.nim,src/core_engine/*.nim
+---
+
+# Security & Cryptographic Guidelines
+
+## 🔒 Current Implementation Status
+
+**⚠️ IMPORTANT**: This project contains **placeholder cryptographic implementations** for educational purposes. Production use requires integration with verified cryptographic libraries.
+
+### Placeholder Modules
+
+- [key_management.nim](mdc:src/cryptography/key_management.nim): Uses nimcrypto with simplified patterns
+- [signature_verification.nim](mdc:src/cryptography/signature_verification.nim): Basic string-based signatures
+- [zk_proofs.nim](mdc:src/cryptography/zk_proofs.nim): Simple proof concepts
+
+## 🛡️ Security Patterns in Codebase
+
+### Input Validation
+
+```nim
+# Always validate inputs before processing
+if stake <= 0 or c.validators.hasKey(id):
+  return  # Reject invalid inputs explicitly
+```
+
+### Duplicate Prevention
+
+```nim
+# Critical for blockchain integrity
+if pool.transactions.hasKey(tx.id):
+  return false  # Prevent transaction replay attacks
+```
+
+### State Consistency
+
+```nim
+# Validate state transitions
+if tx.nonce != vm.state.getNonce(tx.sender) + 1:
+  return false  # Prevent nonce manipulation
+```
+
+### Gas Metering
+
+```nim
+# Prevent resource exhaustion
+if vm.gasUsed + gasPerTx > vm.gasLimit:
+  return false
+```
+
+## 🔧 Production Integration Requirements
+
+### Cryptographic Libraries
+
+Replace placeholders with:
+
+- **Ed25519/secp256k1**: For digital signatures
+- **SHA-256/Blake2b**: For hashing operations  
+- **zk-SNARKs/zk-STARKs**: For zero-knowledge proofs
+- **Secure random**: For key generation
+
+### Security Audit Points
+
+1. **Key Management**: Secure storage and generation
+2. **Transaction Validation**: Comprehensive signature verification
+3. **Consensus Security**: Byzantine fault tolerance implementation
+4. **Network Security**: Peer authentication and message integrity
+5. **State Management**: Protection against race conditions
+
+## 📋 Security Checklist for New Code
+
+- [ ] Input validation on all public interfaces
+- [ ] Explicit error handling for security-critical operations
+- [ ] Duplicate detection where applicable
+- [ ] Gas/resource limits enforced
+- [ ] Clear documentation of security assumptions
+- [ ] Test coverage for security edge cases

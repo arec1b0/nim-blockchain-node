@@ -1,59 +1,103 @@
-# ======================================================
-# Module: IndexDB
-# Role: Transaction Indexing for Blockchain Storage
-# Author's Perspective: System Architect & Lead Cryptographer
-# ======================================================
+## Transaction indexing database for fast transaction lookups.
+## Provides efficient mapping between transactions and their block locations.
 
-import tables
+import std/[tables, options, sets]
 
-# ------------------------------------------------------
-# Type: IndexDB
-# Purpose:
-#   Maintains an index of transactions mapped to their corresponding block heights, facilitating rapid data retrieval.
-#
-# Fields:
-# - txIndex: Explicit mapping between transaction identifiers and block heights for efficient lookup.
-#
-# Architectural Considerations:
-#   - Provides quick access to transaction data, essential for efficient validation and consensus verification.
-# ------------------------------------------------------
 type
+  TransactionId* = string
+  BlockHeight* = Natural
+  
+  TransactionLocation* = object
+    blockHeight*: BlockHeight
+    transactionIndex*: int  # Position within the block
+  
   IndexDB* = ref object
-    txIndex*: Table[string, int]  # Transaction-to-block height mapping
+    txToBlock*: Table[TransactionId, TransactionLocation]
+    blockToTxs*: Table[BlockHeight, seq[TransactionId]]  # Block to transaction list
+    indexedBlocks*: HashSet[BlockHeight]
 
-# ------------------------------------------------------
-# Proc: initializeIndexDB
-# Purpose:
-#   Initializes an empty transaction index database.
-# Security and Architectural Considerations:
-#   - Explicit initialization of indices enhances integrity and data consistency from inception.
-# ------------------------------------------------------
-proc initializeIndexDB*(): IndexDB =
-  IndexDB(txIndex: initTable[string, int]())
+proc newIndexDB*(): IndexDB =
+  ## Creates a new transaction index database.
+  IndexDB(
+    txToBlock: initTable[TransactionId, TransactionLocation](),
+    blockToTxs: initTable[BlockHeight, seq[TransactionId]](),
+    indexedBlocks: initHashSet[BlockHeight]()
+  )
 
-# ------------------------------------------------------
-# Proc: updateTxIndex
-# Purpose:
-#   Inserts or updates the block height for a given transaction ID.
-# Security and Architectural Considerations:
-#   - Explicit indexing enables quick and secure transaction validation, crucial for blockchain auditing and security analysis.
-# ------------------------------------------------------
-proc updateTxIndex*(db: IndexDB, txId: string, blockHeight: int) =
-  db.txIndex[txId] = blockHeight
+proc indexTransaction*(db: IndexDB, txId: TransactionId, blockHeight: BlockHeight, 
+                      txIndex: int = 0): bool =
+  ## Indexes a transaction to its block location.
+  if txId in db.txToBlock:
+    return false  # Transaction already indexed
+    
+  let location = TransactionLocation(
+    blockHeight: blockHeight,
+    transactionIndex: txIndex
+  )
+  
+  db.txToBlock[txId] = location
+  
+  # Update block to transactions mapping
+  if blockHeight notin db.blockToTxs:
+    db.blockToTxs[blockHeight] = @[]
+  db.blockToTxs[blockHeight].add(txId)
+  
+  db.indexedBlocks.incl(blockHeight)
+  true
 
-# ------------------------------------------------------
-# Proc: getTxIndex
-# Purpose:
-#   Retrieves the block height associated with a transaction ID.
-# Security and Architectural Considerations:
-#   - Explicit default handling (-1 indicates absence) ensures clear differentiation between existing and nonexistent transactions, promoting data reliability.
-# ------------------------------------------------------
-proc getTxIndex*(db: IndexDB, txId: string): int =
-  db.txIndex.getOrDefault(txId, -1)
+proc getTransactionLocation*(db: IndexDB, txId: TransactionId): Option[TransactionLocation] =
+  ## Retrieves the location of a transaction.
+  if txId in db.txToBlock:
+    some(db.txToBlock[txId])
+  else:
+    none(TransactionLocation)
 
-# ======================================================
-# Summary (Architectural & Cryptographic Insights):
-# - Explicit and efficient transaction indexing is critical for performance, data integrity, and blockchain traceability.
-# - Clearly structured data management aligns with secure data handling best practices, facilitating robust cryptographic verification.
-# - Essential component in ensuring timely, secure transaction verification and auditing within blockchain systems.
-# ======================================================
+proc getBlockTransactions*(db: IndexDB, blockHeight: BlockHeight): seq[TransactionId] =
+  ## Returns all transaction IDs in a specific block.
+  db.blockToTxs.getOrDefault(blockHeight, @[])
+
+proc hasTransaction*(db: IndexDB, txId: TransactionId): bool =
+  ## Checks if a transaction is indexed.
+  txId in db.txToBlock
+
+proc removeTransaction*(db: IndexDB, txId: TransactionId): bool =
+  ## Removes a transaction from the index.
+  if txId notin db.txToBlock:
+    return false
+    
+  let location = db.txToBlock[txId]
+  db.txToBlock.del(txId)
+  
+  # Remove from block mapping
+  if location.blockHeight in db.blockToTxs:
+    let txList = db.blockToTxs[location.blockHeight]
+    var newList: seq[TransactionId] = @[]
+    for tx in txList:
+      if tx != txId:
+        newList.add(tx)
+    
+    if newList.len > 0:
+      db.blockToTxs[location.blockHeight] = newList
+    else:
+      db.blockToTxs.del(location.blockHeight)
+      db.indexedBlocks.excl(location.blockHeight)
+  
+  true
+
+proc isBlockIndexed*(db: IndexDB, blockHeight: BlockHeight): bool =
+  ## Checks if a block has been indexed.
+  blockHeight in db.indexedBlocks
+
+proc getIndexedBlockCount*(db: IndexDB): int =
+  ## Returns the number of indexed blocks.
+  db.indexedBlocks.len
+
+proc getTransactionCount*(db: IndexDB): int =
+  ## Returns the total number of indexed transactions.
+  db.txToBlock.len
+
+proc clear*(db: IndexDB) =
+  ## Clears all indexes.
+  db.txToBlock.clear()
+  db.blockToTxs.clear()
+  db.indexedBlocks.clear()

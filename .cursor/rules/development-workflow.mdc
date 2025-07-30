@@ -1,0 +1,71 @@
+---
+description: Development workflow, build process, and project setup
+---
+
+# Development Workflow & Build Process
+
+## 🚀 Quick Start Commands
+
+### Initial Setup
+
+```shell
+git clone https://github.com/dkrizhanovskyi/nim-blockchain-node.git
+cd nim-blockchain-node
+nimble install
+```
+
+### Build & Run
+
+```shell
+nimble build          # Compiles to main.exe
+./main.exe            # Run the blockchain node
+nimble test           # Run all tests
+```
+
+## 📁 Project Structure Overview
+
+```
+nim-blockchain-node/
+├── src/                    # Source code organized by architectural layers
+│   ├── core_engine/        # Consensus, state management, VM
+│   ├── cryptography/       # Key management, signatures, ZK proofs  
+│   ├── network/           # P2P, mempool, block propagation
+│   ├── storage/           # Database modules
+│   └── main.nim           # Entry point
+├── tests/                 # Unit and integration tests
+├── docs/                  # Architecture and setup documentation
+└── nim_blockchain_node.nimble  # Build configuration
+```
+
+## ⚙️ Build Configuration
+
+The [nim_blockchain_node.nimble](mdc:nim_blockchain_node.nimble) file defines:
+
+- **Build task**: Compiles with release optimizations
+- **Test task**: Runs all test suites sequentially
+- **Dependencies**: Currently minimal, designed for core Nim capabilities
+
+## 📚 Documentation Resources
+
+Essential reading for understanding the project:
+
+- [docs/architecture.md](mdc:docs/architecture.md): Detailed system architecture
+- [docs/getting_started.md](mdc:docs/getting_started.md): Quick start guide
+- [docs/setup_guide.md](mdc:docs/setup_guide.md): Detailed Windows 11 setup
+- [docs/contributing.md](mdc:docs/contributing.md): Development guidelines
+- [README.md](mdc:README.md): Project overview
+
+## 🔧 Development Environment
+
+### Prerequisites
+
+- **Nim 2.2.2+**: Core language requirement
+- **Nimble**: Package manager (bundled with Nim)
+- **Git**: Version control
+- **PowerShell 7**: Recommended shell for Windows
+
+### IDE Setup
+
+- **VSCode**: Recommended with Nim extension
+- **File watching**: Use `nimble build` for incremental compilation
+- **Debugging**: Compile with debug flags for development builds

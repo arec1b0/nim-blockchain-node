@@ -1,0 +1,58 @@
+---
+globs: *.nim
+---
+
+# Nim Coding Standards for Blockchain Node
+
+## 🎯 Code Organization Patterns
+
+### Module Structure
+
+- **Explicit export markers**: Use `*` suffix for public procedures/types
+- **Clear type definitions**: Place type definitions at module top
+- **Comprehensive documentation**: Include detailed comment blocks explaining purpose, security considerations, and architectural context
+
+### Naming Conventions
+
+- **Types**: PascalCase (e.g., `Consensus`, `StateDB`, `Transaction`)
+- **Procedures**: camelCase with descriptive names (e.g., `addValidator`, `propagateBlock`)
+- **Constants**: camelCase or UPPER_CASE for important constants
+- **Variables**: camelCase with clear intent
+
+### Error Handling
+
+- **Explicit return values**: Use `bool` returns for success/failure operations
+- **Defensive programming**: Check preconditions and handle edge cases
+- **Clear failure modes**: Return `false` or default values with clear semantics
+
+## 🔒 Security & Blockchain Patterns
+
+### Duplicate Prevention
+
+```nim
+# Always check for duplicates in critical operations
+if pool.transactions.hasKey(tx.id):
+  return false  # Prevent adding duplicates explicitly
+```
+
+### State Validation
+
+```nim
+# Validate before state changes
+if amount <= 0 or not s.accounts.hasKey(address):
+  return false
+```
+
+### Gas Metering Pattern
+
+```nim
+# Check gas limits before expensive operations
+if vm.gasUsed + gasPerTx > vm.gasLimit:
+  return false
+```
+
+## 📝 Documentation Standards
+
+- Include detailed comment blocks explaining cryptographic and security considerations
+- Mark placeholder implementations clearly with `TODO:` for production replacements
+- Explain architectural decisions and integration points

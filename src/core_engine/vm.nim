@@ -1,52 +1,80 @@
 import state_management
 
 type
+  TransactionId* = string
+  Gas* = Natural
+  
   Transaction* = object
-    sender*: string
-    receiver*: string
-    amount*: int
-    fee*: int
-    nonce*: int
+    id*: TransactionId
+    sender*: Address  
+    receiver*: Address
+    amount*: Balance
+    fee*: Balance
+    nonce*: Nonce
 
   VM* = object
     state*: StateDB
-    gasLimit*: int
-    gasUsed*: int
+    gasLimit*: Gas
+    gasUsed*: Gas
 
-proc newVM*(state: StateDB, gasLimit: int): VM =
+const GasPerTransaction* = 21000.Gas
+
+proc newVM*(state: StateDB, gasLimit: Gas): VM =
   VM(state: state, gasLimit: gasLimit, gasUsed: 0)
 
-proc validateTx*(vm: VM, tx: Transaction): bool =
-  if tx.amount <= 0 or tx.fee < 0:
+proc validateTransaction*(vm: VM, tx: Transaction): bool =
+  # Check basic transaction validity
+  if tx.amount == 0:
     return false
-  if vm.state.getBalance(tx.sender) < tx.amount + tx.fee:
+  
+  # Check sender has sufficient balance
+  let senderBalance = vm.state.getBalance(tx.sender)
+  if senderBalance < tx.amount + tx.fee:
     return false
-  if tx.nonce != vm.state.getNonce(tx.sender) + 1:
+    
+  # Check nonce sequence
+  let expectedNonce = vm.state.getNonce(tx.sender) + 1
+  if tx.nonce != expectedNonce:
     return false
+    
   true
 
-proc applyTx*(vm: var VM, tx: Transaction): bool =
-  const gasPerTx = 21000
-  if vm.gasUsed + gasPerTx > vm.gasLimit or not vm.validateTx(tx):
+proc checkGasLimit*(vm: VM, gasRequired: Gas): bool =
+  vm.gasUsed + gasRequired <= vm.gasLimit
+
+proc applyTransaction*(vm: var VM, tx: Transaction): bool =
+  # Check gas limit
+  if not vm.checkGasLimit(GasPerTransaction):
     return false
+    
+  # Validate transaction
+  if not vm.validateTransaction(tx):
+    return false
+    
+  # Execute transaction
   if not vm.state.decreaseBalance(tx.sender, tx.amount + tx.fee):
     return false
+    
   vm.state.increaseBalance(tx.receiver, tx.amount)
   discard vm.state.incrementNonce(tx.sender)
-  vm.gasUsed += gasPerTx
+  vm.gasUsed += GasPerTransaction
+  
   true
 
-proc resetGas*(vm: var VM, gasLimit: int) =
-  vm.gasLimit = gasLimit
+proc resetGas*(vm: var VM, newGasLimit: Gas) =
+  vm.gasLimit = newGasLimit
   vm.gasUsed = 0
 
-proc gasRemaining*(vm: VM): int =
+proc remainingGas*(vm: VM): Gas =
   vm.gasLimit - vm.gasUsed
 
-proc executeBatch*(vm: var VM, txs: seq[Transaction]): seq[bool] =
-  result = newSeq[bool](txs.len)
-  for i, tx in txs:
-    result[i] = vm.applyTx(tx)
+proc gasUtilization*(vm: VM): float =
+  if vm.gasLimit == 0: 0.0 else: vm.gasUsed.float / vm.gasLimit.float
 
-proc commitState*(vm: VM): StateDB =
+proc executeBatch*(vm: var VM, transactions: seq[Transaction]): seq[bool] =
+  result = newSeq[bool](transactions.len)
+  for i, tx in transactions:
+    result[i] = vm.applyTransaction(tx)
+
+proc getState*(vm: VM): StateDB =
   vm.state
