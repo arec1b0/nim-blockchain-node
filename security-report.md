@@ -16,41 +16,44 @@ This security audit reveals **CRITICAL VULNERABILITIES** that make the current b
 - Inadequate transaction validation and security
 - Insecure storage without encryption or integrity protection
 
-**Overall Security Posture:** HIGH RISK - Immediate remediation required before any deployment.
+**Overall Security Posture:** HIGH RISK. This tree is an educational prototype and must not be deployed.
+
+## Update (Path 2, November 2026)
+
+The authorization path now rejects unsigned and non-matching demo signatures in the VM and the mempool. CLI JSON no longer includes `private_key`; the key is written to a plaintext keystore. Diagnostics use `std/logging`. `nimcrypto` is pinned at `== 0.6.2`, and CI runs `nimble buildAll` and `nimble test`.
+
+That does **not** close the cryptographic findings below. The scheme is still `demo-sha256` (`signature = hex(SHA-256(publicKeyBytes || message))`), which anyone with the public key can forge. It is not Ed25519. The keystore is not encrypted. Zero-knowledge proofs are still string prefixes. Networking, consensus, and storage findings are unchanged.
 
 ---
 
 ## Critical Vulnerabilities
 
-### 1. Broken Public Key Cryptography Implementation
+### 1. Teaching signature scheme is not public-key cryptography
 
-- **Location**: `src/cryptography/key_management.nim:8-15`
+- **Location**: `src/cryptography/key_management.nim`, `src/cryptography/signature_verification.nim`
 - **Severity**: CRITICAL
-- **Description**: The `generateKeyPair()` function incorrectly derives public keys from private keys using SHA256 hashing. This is cryptographically invalid and renders the entire signature system worthless.
+- **Description**: Key generation sets `publicKey = hex(SHA-256(privateKeyBytes))`. The unified verifier accepts `signature = hex(SHA-256(publicKeyBytes || messageBytes))` under the name `demo-sha256`. The previous split (a private-key digest in one module and a `signed_` prefix in another) is gone, so sign and verify match. The result is still not Ed25519 or secp256k1. Anyone who knows the public key can forge a signature. The account id is the first 8 hex characters of that public key.
 
-```nim
-let pubKey = sha256.digest(privKey)  # ❌ CRITICAL FLAW
-```
-
-- **Impact**: Complete compromise of cryptographic security. Attackers can forge signatures and compromise all transactions.
+- **Impact**: A party who sees a public key (it is printed by `account create` and stored on each transaction) can authorize spends for that account. This is not unforgeable authorization.
 - **Remediation Checklist**:
-  - [ ] Replace with proper elliptic curve cryptography (ECDSA secp256k1 or Ed25519)
-  - [ ] Implement proper key pair generation using established libraries (nimcrypto with proper curve implementations)
-  - [ ] Add key validation and format checks
-  - [ ] Implement secure key storage with encryption at rest
+  - [ ] Replace with Ed25519 or secp256k1
+  - [x] Use one verification API for signing and checking (still the SHA-256 demo)
+  - [ ] Add key validation for a real curve
+  - [ ] Encrypt keys at rest (the CLI keystore is plaintext; see the keystore note below)
 
-### 2. Placeholder Signature Verification System
+### 2. Demo signature verification is forgeable
 
-- **Location**: `src/cryptography/signature_verification.nim:22-23`
-- **Severity**: CRITICAL  
-- **Description**: Signature verification uses simple string concatenation (`"signed_" & message`) instead of cryptographic signature validation.
+- **Location**: `src/cryptography/signature_verification.nim`
+- **Severity**: CRITICAL
+- **Description**: The `signed_` + message placeholder was removed. `verifySignature` now recomputes the `demo-sha256` digest and compares it to the signature. Empty signatures and digests that do not match are rejected by `validateTransaction` and mempool admission. The comparison is not a signature scheme with unforgeability, malleability resistance, or a domain-separated transaction hash.
 
-- **Impact**: Any attacker can forge valid signatures by following the predictable pattern, completely bypassing authentication.
+- **Impact**: Forgery is trivial given the public key. The new gate only stops missing and corrupted demo signatures from moving balances.
 - **Remediation Checklist**:
-  - [ ] Implement proper ECDSA or Ed25519 signature verification
-  - [ ] Add signature malleability protection
-  - [ ] Implement message hashing with secure algorithms (SHA256/SHA3)
-  - [ ] Add signature format validation and error handling
+  - [ ] Implement Ed25519 or secp256k1 verification
+  - [ ] Add signature malleability protection appropriate to that scheme
+  - [ ] Replace the pipe-separated teaching payload with a real transaction hash
+  - [x] Reject malformed demo signatures instead of accepting a string prefix
+  - [x] Remove the duplicate `key_management.verifySignature` export
 
 ### 3. Non-Functional Zero-Knowledge Proof System
 
@@ -79,18 +82,18 @@ let pubKey = sha256.digest(privKey)  # ❌ CRITICAL FLAW
   - [ ] Add network message encryption and MAC validation
   - [ ] Implement eclipse attack protection
 
-### 5. Missing Transaction Signature Validation
+### 5. Signature gate added; the scheme is still the demo
 
-- **Location**: `src/core_engine/vm.nim:19-26, 28-37`
-- **Severity**: CRITICAL
-- **Description**: Transaction validation only checks balances and nonces but never verifies cryptographic signatures.
+- **Location**: `src/core_engine/vm.nim` (`validateTransaction`), `src/network/mempool.nim` (`addTransaction`)
+- **Severity**: HIGH (the previous "no check at all" defect is remediated; residual risk is items 1 and 2)
+- **Description**: Both paths call `authorizeTransaction` before a transaction can be applied or admitted. Missing public keys, missing signatures, sender/key mismatches, and non-matching demo signatures are distinct `Status` errors. The mempool does not re-check balance or nonce; the VM does, after the signature check. The CLI still runs the VM and then the mempool.
 
-- **Impact**: Attackers can create and execute transactions for any account without authorization.
+- **Impact**: Unsigned and invalid demo signatures no longer move balances. A forged demo signature that matches the public key still does.
 - **Remediation Checklist**:
-  - [ ] Add mandatory signature verification for all transactions
-  - [ ] Implement transaction hash calculation and signing
-  - [ ] Add sender address derivation from signature
-  - [ ] Implement transaction format validation
+  - [x] Require a signature check on the VM validation path and on mempool admission
+  - [x] Bind the sender to the address derived from the public key (8 hex character truncation, not signature recovery)
+  - [ ] Sign a real transaction hash with Ed25519 or secp256k1
+  - [ ] Stop treating a known public key as sufficient to produce a signature
 
 ---
 
@@ -191,18 +194,18 @@ let pubKey = sha256.digest(privKey)  # ❌ CRITICAL FLAW
   - [ ] Add bounds checking for all numeric inputs
   - [ ] Implement string length limits and character filtering
 
-### 13. Missing Logging and Monitoring
+### 13. Logging exists; it is not a security audit trail
 
-- **Location**: Entire codebase
+- **Location**: `src/common/logsetup.nim`, `src/main.nim`, `src/cli.nim`
 - **Severity**: MEDIUM
-- **Description**: No security logging, audit trails, or monitoring capabilities.
+- **Description**: Diagnostic `echo` calls on the node, CLI initialization, and block propagation now use `std/logging`. `--verbose` enables debug; otherwise the level is info. Command results stay on stdout. Logs are not an audit system, and there is no tamper-evident trail. Private keys and signatures are not logged.
 
-- **Impact**: Security incidents cannot be detected, investigated, or forensically analyzed.
+- **Impact**: Operators can see init and rejection reasons. They still cannot investigate a production incident from these logs alone.
 - **Remediation Checklist**:
-  - [ ] Implement comprehensive security event logging
-  - [ ] Add transaction audit trails
-  - [ ] Implement anomaly detection and alerting
-  - [ ] Add performance and security metrics collection
+  - [x] Use log levels instead of unfiltered diagnostic `echo` on the touched paths
+  - [x] Keep private keys and full signatures out of log lines
+  - [ ] Add a durable audit trail and alerting
+  - [ ] Add metrics
 
 ### 14. Hardcoded Test Values in Production Code
 
@@ -230,35 +233,35 @@ let pubKey = sha256.digest(privKey)  # ❌ CRITICAL FLAW
   - [ ] Implement adaptive difficulty for transaction inclusion
   - [ ] Add mempool size limits and oldest-transaction eviction
 
-### 16. Inadequate Error Handling
+### 16. Some paths still collapse failures, but the auth path does not
 
-- **Location**: Throughout codebase
+- **Location**: `src/common/result.nim`, VM, mempool, CLI transfer, both init paths
 - **Severity**: MEDIUM
-- **Description**: Many functions return simple boolean success/failure without detailed error information.
+- **Description**: `validateTransaction`, `applyTransaction`, mempool `addTransaction`, CLI transfer, and node/CLI initialization return `Status` or `Result` with a specific error enum. Many other procedures still return `bool`. Bare `except` in CLI init and the old key-management verifier were replaced with `CatchableError` or `ValueError`. Error text does not include key material.
 
-- **Impact**: Difficult to diagnose security issues and system problems.
+- **Impact**: Authorization failures are distinguishable. Other subsystems still are not.
 - **Remediation Checklist**:
-  - [ ] Implement comprehensive error types and handling
-  - [ ] Add detailed error logging without exposing sensitive information
-  - [ ] Implement graceful degradation for non-critical failures
-  - [ ] Add error recovery mechanisms
+  - [x] Typed errors for validation, mempool admission, transfer, and initialization
+  - [x] Narrow the bare `except` blocks on those paths
+  - [ ] Extend the same pattern to the rest of the tree
+  - [ ] Add recovery behavior where a prototype later needs it
 
 ---
 
 ## Low Vulnerabilities
 
-### 17. Missing Dependency Management
+### 17. Direct dependency is pinned; the tree is still not locked
 
-- **Location**: `nim_blockchain_node.nimble:13-14`
+- **Location**: `nim_blockchain_node.nimble`, `.github/workflows/ci.yml`
 - **Severity**: LOW
-- **Description**: No explicit version pinning for Nim compiler or dependencies.
+- **Description**: `nimcrypto` is pinned at `== 0.6.2`. CI installs Nim 2.2.4 and runs `nimble buildAll` and `nimble test` on push and pull request. There is no separate lockfile of transitive checksums, and warnings are not build failures.
 
-- **Impact**: Potential for supply chain attacks or compatibility issues.
+- **Impact**: The direct crypto package version is reproducible. Transitive packages and a future Nim toolchain outside CI are not fully locked.
 - **Remediation Checklist**:
-  - [ ] Pin specific Nim compiler version requirements
-  - [ ] Add dependency version locking file
-  - [ ] Implement dependency vulnerability scanning
-  - [ ] Add checksum verification for all dependencies
+  - [x] Pin the direct `nimcrypto` requirement
+  - [x] Run build and tests in CI on a pinned Nim 2.2.x
+  - [ ] Add checksum pinning for transitive dependencies
+  - [ ] Add dependency vulnerability scanning
 
 ### 18. Insufficient Test Coverage for Security Scenarios
 
@@ -286,18 +289,18 @@ let pubKey = sha256.digest(privKey)  # ❌ CRITICAL FLAW
   - [ ] Add incident response procedures
   - [ ] Create security update procedures
 
-### 20. Development Debug Information
+### 20. Diagnostic echo on the node path was replaced
 
-- **Location**: Multiple `echo` statements throughout codebase
+- **Location**: `src/main.nim`, `src/cli.nim`, `src/network/block_propagation.nim`
 - **Severity**: LOW
-- **Description**: Debug output may leak sensitive information in production.
+- **Description**: Those diagnostics now go through `std/logging` on stderr. CLI help and command results, including JSON, stay on stdout so `--json` remains machine-readable. `account create` no longer prints the private key. The keystore file still contains it in plaintext.
 
-- **Impact**: Information disclosure through log files.
+- **Impact**: Process logs should not contain private keys or signatures. The keystore file and any copy of the public key remain sensitive because the demo scheme is forgeable from the public key.
 - **Remediation Checklist**:
-  - [ ] Implement proper logging levels (DEBUG, INFO, WARN, ERROR)
-  - [ ] Remove debug output from production builds
-  - [ ] Add log sanitization to prevent data leakage
-  - [ ] Implement secure log rotation and retention policies
+  - [x] Log levels for the node, CLI diagnostics, and block propagation
+  - [x] Do not emit private keys in default CLI JSON or log lines
+  - [ ] Encrypt the keystore
+  - [ ] Add retention and access control for logs beyond this prototype
 
 ---
 

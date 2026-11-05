@@ -149,9 +149,11 @@ nimble buildAll
 
 ## 🔐 Security Notes
 
-- **Private Keys**: When creating accounts, save the private keys securely! They are only shown once.
-- **Genesis Account**: The genesis account starts with 1,000,000 tokens for testing.
-- **Transaction Fees**: Default fee is 10 tokens, but you can specify custom fees.
+- **Private keys**: `account create` writes the private key to `<data-dir>/keystore/<address>.key` and does not print it. JSON output has no `private_key` field. The file is plaintext and is not encrypted. On Windows it cannot be given a POSIX 0600 ACL via Nim.
+- **Signatures**: Transfers need a keystore for the sender and a `demo-sha256` signature. That scheme is not Ed25519 and is forgeable if the public key is known. The `genesis` account has a balance and no key, so it cannot send.
+- **Genesis account**: The genesis account starts with 1,000,000 tokens in memory for tests. It is not a signing account.
+- **Transaction fees**: Default fee is 10 tokens, but you can specify custom fees.
+- **Logging**: `--verbose` turns on debug logs on stderr. `NIM_NODE_VERBOSE` and `NIM_NODE_DATA_DIR` apply when the matching CLI flag is absent. CLI flags win when they are set.
 
 ## 🛠️ Development
 
@@ -192,14 +194,16 @@ Each CLI command maps to one or more of these underlying components, providing a
 # 1. Start the node
 ./blockchain_cli node start
 
-# 2. Create test accounts
+# 2. Create test accounts (the private key is written under data/keystore and is not printed)
 ./blockchain_cli account create  # Alice
 ./blockchain_cli account create  # Bob
 
-# 3. Fund Alice from genesis
+# 3. Genesis has a balance and no keystore, so this transfer is rejected.
 ./blockchain_cli account transfer genesis <alice_address> 5000
 
-# 4. Alice sends to Bob
+# 4. A signed transfer still needs a balance. New accounts start at 0,
+#    and this prototype has no faucet, so this is rejected for insufficient balance
+#    until something credits `vm.state` for that address.
 ./blockchain_cli account transfer <alice_address> <bob_address> 100
 
 # 5. Check final balances

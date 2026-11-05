@@ -51,6 +51,7 @@ After successfully setting up and testing your node, consider:
 - Exploring further implementation details provided in `docs/overview.md`.
 
 ### 🛡️ Security Considerations
-Regularly review cryptographic practices and keep dependencies updated. Pay attention to cryptographic library versions and potential vulnerabilities.
+
+This repository is an educational prototype. `demo-sha256` is not Ed25519, the keystore is plaintext, and zero-knowledge proofs are placeholders. Keep dependency pins under review, and do not treat the node as a place to hold value.
 
 For further information or to contribute, see [contributing.md](contributing.md).
