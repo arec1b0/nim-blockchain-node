@@ -4,6 +4,7 @@ import ../../src/network/p2p
 import ../../src/network/mempool
 import ../../src/network/block_propagation
 import ../../src/cryptography/key_management
+import ../../src/cryptography/signature_verification
 
 proc signedSample(id: string, fee: int, size: int): Transaction =
   let keys = generateKeyPair()
@@ -59,8 +60,36 @@ suite "Network Layer Tests":
     check rejected.error == maInvalidSignature
     check not mempool.hasTransaction("bad")
 
+  test "Mempool: rejects wrong-key and sender/publicKey mismatch":
+    let mempool = newMempool(100)
+    let owner = generateKeyPair()
+    let other = generateKeyPair()
+    var wrongKey = Transaction(
+      id: "wrong-key",
+      sender: addressFromPublicKey(owner.publicKey),
+      receiver: "bob",
+      amount: 5,
+      fee: 1,
+      nonce: 1,
+      publicKey: owner.publicKey
+    )
+    wrongKey.signature = signMessage(other.privateKey, transactionSigningPayload(wrongKey))
+    let badSig = mempool.addTransaction(wrongKey)
+    check not badSig.ok
+    check badSig.error == maInvalidSignature
+
+    var mismatch = signedTransaction(Transaction(
+      id: "mismatch", receiver: "bob", amount: 5, fee: 1, nonce: 1), owner)
+    mismatch.sender = "otheracct"
+    let badSender = mempool.addTransaction(mismatch)
+    check not badSender.ok
+    check badSender.error == maSenderKeyMismatch
+    check mempool.transactionCount() == 0
+
   test "Block Propagation: basic propagation":
     let blk = newBlock("block123", 1, "block_data")
     let status = propagateBlock(blk)
     check status.result == Success
     check status.peersReached > 0
+    # Placeholder still hardcodes peersReached; Network is not injected yet.
+    check status.peersReached == 5
