@@ -27,7 +27,10 @@ import ../core_engine/state_management
 when defined(windows):
   import std/[winlean, widestrs]
 else:
-  import std/posix
+  # `std/posix` does not export `rename`. This is the same libc call Nim uses
+  # for a same-directory replace: the destination is overwritten.
+  proc posixRename(oldname, newname: cstring): cint {.
+    importc: "rename", header: "<stdio.h>".}
 
 type
   AccountStoreError* = enum
@@ -89,7 +92,7 @@ proc replaceSnapshot(source, dest: string): bool =
     let flags = MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH
     moveFileExW(newWideCString(source), newWideCString(dest), flags) != 0'i32
   else:
-    rename(cstring(source), cstring(dest)) == 0'i32
+    posixRename(cstring(source), cstring(dest)) == 0'i32
 
 proc checksumHex(payload: string): string =
   toHex(sha256.digest(payload).data, lowercase = true)
