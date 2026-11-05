@@ -1,0 +1,23 @@
+---
+description: Keep architecture docs and ADRs aligned with implementation
+alwaysApply: true
+---
+
+# Documentation Alignment
+
+Apply to documentation edits and to code changes that affect ownership or public APIs.
+
+## Living Docs
+
+- Keep [docs/architecture.md](mdc:docs/architecture.md) and [docs/overview.md](mdc:docs/overview.md) aligned with the actual implementation.
+- When a change alters module ownership, public APIs, layer boundaries, or the transaction lifecycle, update those docs in the same change set when practical.
+
+## ADRs
+
+- When changing module ownership, public APIs, or the transaction lifecycle, update an existing ADR or create a new one under [docs/adr/](mdc:docs/adr/).
+- ADRs must be written in English and state the decision, context, and consequences.
+
+## Scope
+
+- Do not invent large documentation rewrites unrelated to the change at hand.
+- Prefer updating the specific sections that drifted from the code.
