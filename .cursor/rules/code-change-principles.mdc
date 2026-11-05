@@ -1,0 +1,26 @@
+---
+description: Nim code style, architecture boundaries, and change discipline
+alwaysApply: true
+---
+
+# Code Change Principles
+
+Apply to all code generation, refactors, and tests.
+
+## Architecture & Module Boundaries
+
+- Follow the existing 4-layer structure (`core_engine`, `cryptography`, `network`, `storage`) and module ownership described in [architecture-guide.mdc](mdc:.cursor/rules/architecture-guide.mdc) and [docs/architecture.md](mdc:docs/architecture.md).
+- Keep domain types in their owning modules (e.g. shared types in `src/common/`); do not redefine the same domain type in multiple layers.
+- Keep composition-root responsibilities in [src/main.nim](mdc:src/main.nim): wire modules there; do not scatter orchestration into leaf modules.
+- Prefer a single canonical state/API surface per concern; do not introduce parallel state APIs that overlap existing ones.
+- Prefer qualified or explicitly disambiguated imports over ambiguous unqualified imports that collide on type or procedure names.
+
+## Change Discipline
+
+- Prefer small, incremental, reviewable changes over broad rewrites.
+- Preserve existing public behavior unless the user explicitly requests a breaking or behavioral change.
+- Extend existing patterns before inventing new ones.
+
+## Language
+
+- Write all code comments, documentation, ADRs, and commit messages in English.

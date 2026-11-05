@@ -1,0 +1,39 @@
+---
+description: Git commit message conventions for this project
+alwaysApply: true
+---
+
+# Git Commit Rules
+
+Apply whenever creating or drafting git commits.
+
+## Forbidden Trailers
+
+- Never add `Co-authored-by:` trailers to commit messages.
+- Never add AI attribution, generated-by notices, or similar trailers (e.g. `Generated-by:`, `Signed-off-by:` for AI, model names).
+
+## Message Style
+
+- Concise, imperative mood, describing the actual change.
+- Prefer Conventional Commits when they fit:
+
+```text
+feat: add canonical transaction type
+refactor: introduce global state store
+test: update cryptography tests for unified signature API
+docs: add domain model ownership ADR
+```
+
+## Examples
+
+```text
+# ✅ GOOD
+feat: add canonical transaction type
+fix: reject duplicate mempool entries by tx id
+
+# ❌ BAD
+Updated stuff and also fixed things
+feat: add transaction type
+
+Co-authored-by: Some AI <ai@example.com>
+```
