@@ -103,3 +103,24 @@ suite "Core Engine Tests":
     check vm.applyTransaction(good).ok
     check vm.state.getBalance(sender) == 989
     check vm.gasUsed == 21000
+
+  test "VM - rejects an empty receiver before moving balances":
+    var state = newStateDB()
+    let keys = generateKeyPair()
+    let sender = addressFromPublicKey(keys.publicKey)
+    state.setBalance(sender, 1000)
+    var vm = newVM(state, 100000)
+    let tx = signedTransaction(Transaction(
+      id: "empty-to",
+      sender: sender,
+      receiver: "",
+      amount: 10,
+      fee: 1,
+      nonce: 1
+    ), keys)
+    let rejected = vm.applyTransaction(tx)
+    check not rejected.ok
+    check rejected.error == txEmptyReceiver
+    check vm.state.getBalance(sender) == 1000
+    check not vm.state.hasAccount("")
+    check vm.gasUsed == 0

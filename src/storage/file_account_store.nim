@@ -227,8 +227,18 @@ proc openFileAccountStore*(dataDir: string): Result[OpenedFileAccountStore, Acco
 proc currentState*(store: FileAccountStore): StateDB =
   store.state
 
+proc snapshotAccepts(state: StateDB): bool =
+  ## Same address rule `parseSnapshot` enforces. A Table cannot hold duplicate keys.
+  for address in keys(state.accounts):
+    if address.len == 0:
+      return false
+  true
+
 proc saveState*(store: FileAccountStore, state: StateDB): Status[AccountStoreError] =
   ## Writes a new snapshot. The in-memory copy changes only after the replace.
+  ## A ledger the reader would reject is not written, so the previous file stays.
+  if not snapshotAccepts(state):
+    return errStatus(asMalformed)
   let written = writeSnapshot(store.path, store.dataDir, snapshotDocument(state))
   if written.ok:
     store.state = state

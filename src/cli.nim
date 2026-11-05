@@ -47,6 +47,7 @@ type
     trInvalidSignature
     trInsufficientBalance
     trBadNonce
+    trEmptyReceiver
     trGasLimitExceeded
     trDebitFailed
     trAccountStore
@@ -324,6 +325,8 @@ proc describeTransfer(err: TransferError): string =
     "Transfer failed: insufficient balance."
   of trBadNonce:
     "Transfer failed: the nonce does not match the account sequence."
+  of trEmptyReceiver:
+    "Transfer failed: the recipient address is empty."
   of trGasLimitExceeded:
     "Transfer failed: gas limit exceeded."
   of trDebitFailed:
@@ -348,6 +351,7 @@ proc fromTx(err: TxError): TransferError =
   of txInvalidSignature: trInvalidSignature
   of txInsufficientBalance: trInsufficientBalance
   of txBadNonce: trBadNonce
+  of txEmptyReceiver: trEmptyReceiver
   of txGasLimitExceeded: trGasLimitExceeded
 
 proc transferFunds(fromAddr, toAddr: string, amount: int, fee: int = 10): Status[TransferError] =
@@ -357,6 +361,9 @@ proc transferFunds(fromAddr, toAddr: string, amount: int, fee: int = 10): Status
   if isMemoryDataDir(cliConfig.dataDir):
     emitText("Transfer failed: :memory: does not store keys. Pass a filesystem --data-dir.")
     return errStatus(trKeystoreUnsafePath)
+  if toAddr.len == 0:
+    emitText(describeTransfer(trEmptyReceiver))
+    return errStatus(trEmptyReceiver)
   if amount <= 0:
     emitText(describeTransfer(trZeroAmount))
     return errStatus(trZeroAmount)

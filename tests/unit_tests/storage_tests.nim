@@ -236,6 +236,32 @@ suite "Account Store Tests":
     check not loaded.ok
     check loaded.error == ksUnsafePath
 
+  test "save refuses an empty address without replacing the snapshot":
+    let dir = tempStoreDir("empty-address")
+    try:
+      var good = newStateDB()
+      good.setBalance("alice", 3)
+      let opened = openAccountStore(dir)
+      check opened.ok
+      check opened.value.store.saveAccounts(good).ok
+      let path = dir / "accounts.json"
+      let original = readFile(path)
+      var bad = good
+      bad.setBalance("", 1)
+      let saved = opened.value.store.saveAccounts(bad)
+      check not saved.ok
+      check saved.error == asMalformed
+      check readFile(path) == original
+      let again = openAccountStore(dir)
+      check again.ok
+      let loaded = again.value.store.loadAccounts().value
+      check loaded.getBalance("alice") == 3
+      check not loaded.hasAccount("")
+      discard again.value.store.closeAccountStore()
+      discard opened.value.store.closeAccountStore()
+    finally:
+      removeStoreDir(dir)
+
   test "failed initialization does not replace a bad snapshot":
     let dir = tempStoreDir("init-keeps-bad")
     let previous = cliConfig

@@ -20,6 +20,7 @@ type
     txInvalidSignature
     txInsufficientBalance
     txBadNonce
+    txEmptyReceiver
     txGasLimitExceeded
     txDebitFailed
 
@@ -46,6 +47,8 @@ proc validateTransaction*(vm: VM, tx: Transaction): Status[TxError] =
   let auth = authorizeTransaction(tx)
   if not auth.ok:
     return rejectTx(tx.id, authToTxError(auth.error))
+  if tx.receiver.len == 0:
+    return rejectTx(tx.id, txEmptyReceiver)
   if tx.amount == 0:
     return rejectTx(tx.id, txZeroAmount)
   let senderBalance = vm.state.getBalance(tx.sender)
