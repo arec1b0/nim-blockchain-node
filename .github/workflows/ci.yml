@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.4"
+      # --warningAsError is intentionally off. This educational tree still
+      # emits compiler warnings outside the authorization change. Enable it
+      # only after `nimble buildAll` is clean.
+      - name: Build
+        run: nimble buildAll -y
+      - name: Test
+        run: nimble test -y
