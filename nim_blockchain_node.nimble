@@ -2,14 +2,15 @@
 
 version       = "0.1.0"
 author        = "arec1b0"
-description   = "A high-performance blockchain node implementation in Nim"
+description   = "Educational prototype of a blockchain node in Nim (not production-ready)"
 license       = "MIT"
 srcDir        = "src"
 bin           = @["main", "blockchain_cli"]
 
 # Dependencies
 requires "nim >= 2.2.2"
-requires "nimcrypto"
+# Direct dependency only. Transitive packages belong to nimcrypto; do not redeclare them.
+requires "nimcrypto == 0.6.2"
 
 task build, "Compile blockchain node executable":
   exec "nim c -d:release src/main.nim"

@@ -9,3 +9,8 @@ nimcache/
 
 # Logs
 logs/
+
+# Nimble local dependency artifacts
+nimble.develop
+nimble.paths
+nimbledeps
