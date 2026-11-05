@@ -2,12 +2,11 @@
 ## Provides efficient access to blockchain blocks by height.
 
 import std/[tables, options]
+import ../common/types
+
+export types.BlockHeight, types.BlockData, types.BlockHash, types.Block
 
 type
-  BlockHeight* = Natural
-  BlockData* = string
-  BlockHash* = string
-  
   StoredBlock* = object
     height*: BlockHeight
     data*: BlockData
@@ -18,6 +17,25 @@ type
     blocks*: Table[BlockHeight, StoredBlock]
     blockHashes*: Table[BlockHash, BlockHeight]  # Hash to height mapping
     currentHeight*: BlockHeight
+
+proc toStoredBlock*(blk: Block): StoredBlock =
+  ## Converts a canonical domain Block into a storage DTO StoredBlock.
+  StoredBlock(
+    height: blk.height,
+    data: blk.data,
+    hash: blk.id,
+    timestamp: blk.timestamp
+  )
+
+proc toBlock*(stored: StoredBlock, previousHash: BlockHash = ""): Block =
+  ## Converts a storage DTO StoredBlock into a canonical domain Block.
+  Block(
+    id: stored.hash,
+    height: stored.height,
+    data: stored.data,
+    timestamp: stored.timestamp,
+    previousHash: previousHash
+  )
 
 proc newBlockchainDB*(): BlockchainDB =
   ## Creates a new blockchain database.
@@ -48,6 +66,10 @@ proc addBlock*(db: BlockchainDB, height: BlockHeight, data: BlockData,
     db.currentHeight = height
     
   true
+
+proc addBlock*(db: BlockchainDB, blk: Block): bool =
+  ## Convenience overload to add a canonical domain Block to the blockchain database.
+  db.addBlock(blk.height, blk.data, blk.id, blk.timestamp)
 
 proc getBlock*(db: BlockchainDB, height: BlockHeight): Option[StoredBlock] =
   ## Retrieves a block by height.

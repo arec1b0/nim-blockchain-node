@@ -2,11 +2,11 @@
 ## Provides efficient mapping between transactions and their block locations.
 
 import std/[tables, options, sets]
+import ../common/types
+
+export types.TransactionId, types.BlockHeight
 
 type
-  TransactionId* = string
-  BlockHeight* = Natural
-  
   TransactionLocation* = object
     blockHeight*: BlockHeight
     transactionIndex*: int  # Position within the block

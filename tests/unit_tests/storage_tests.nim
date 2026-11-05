@@ -2,6 +2,8 @@ import unittest
 import ../../src/storage/blockchain_db
 import ../../src/storage/state_db
 import ../../src/storage/index_db
+import ../../src/storage/blockchain_store
+import ../../src/storage/index_store
 import ../../src/storage/account_store
 import ../../src/core_engine/state_management
 import ../../src/common/[config, types]
@@ -295,3 +297,184 @@ suite "Account Store Tests":
       discard again.value.store.closeAccountStore()
     finally:
       removeStoreDir(dir)
+
+
+  test "canonical Block and BlockHeight domain types work seamlessly with BlockchainDB":
+    let chainDB = newBlockchainDB()
+    let h: BlockHeight = 5
+    let canonicalBlk = newBlock("blk_canon_5", h, "canonical block payload", "prev_hash_4")
+    
+    # Store using canonical Block overload
+    check chainDB.addBlock(canonicalBlk) == true
+    check chainDB.getCurrentHeight() == h
+    check chainDB.hasBlock(h)
+    check chainDB.hasBlockWithHash("blk_canon_5")
+
+    # Retrieve StoredBlock DTO
+    let storedOpt = chainDB.getBlock(h)
+    check storedOpt.isSome
+    let stored = storedOpt.get
+    check stored.height == h
+    check stored.data == "canonical block payload"
+    check stored.hash == "blk_canon_5"
+
+    # Convert StoredBlock to canonical Block
+    let reconverted = stored.toBlock("prev_hash_4")
+    check reconverted.id == canonicalBlk.id
+    check reconverted.height == canonicalBlk.height
+    check reconverted.data == canonicalBlk.data
+    check reconverted.timestamp == canonicalBlk.timestamp
+    check reconverted.previousHash == "prev_hash_4"
+
+    # Convert Block to StoredBlock DTO
+    let dto = canonicalBlk.toStoredBlock()
+    check dto.height == canonicalBlk.height
+    check dto.data == canonicalBlk.data
+    check dto.hash == canonicalBlk.id
+    check dto.timestamp == canonicalBlk.timestamp
+
+  test "canonical types work across IndexDB without type collisions":
+    let indexDB = newIndexDB()
+    let h: BlockHeight = 42
+    let txId: TransactionId = "tx_canonical_42"
+    check indexDB.indexTransaction(txId, h, 0) == true
+    check indexDB.hasTransaction(txId)
+    check indexDB.isBlockIndexed(h)
+    
+    let loc = indexDB.getTransactionLocation(txId)
+    check loc.isSome
+    check loc.get.blockHeight == h
+    check loc.get.transactionIndex == 0
+    
+    let txs = indexDB.getBlockTransactions(h)
+    check txs == @[txId]
+
+  test "MemoryBlockchainStore: block addition, retrieval, height, and latest block":
+    let memStore = newMemoryBlockchainStore()
+    check memStore.getCurrentHeight() == 0
+    check memStore.getBlockCount() == 0
+    check memStore.getLatestBlock().isNone
+
+    let b1 = newBlock("hash_1", 1, "block one data")
+    check memStore.addBlock(b1) == true
+    # Duplicate block at same height rejected
+    check memStore.addBlock(b1) == false
+    check memStore.getCurrentHeight() == 1
+    check memStore.getBlockCount() == 1
+    check memStore.hasBlock(1)
+    check memStore.hasBlockWithHash("hash_1")
+    check not memStore.hasBlock(2)
+    check not memStore.hasBlockWithHash("unknown_hash")
+
+    let b1Retrieved = memStore.getBlock(1)
+    check b1Retrieved.isSome
+    check b1Retrieved.get.id == "hash_1"
+    check b1Retrieved.get.hash == "hash_1"
+    check b1Retrieved.get.height == 1
+    check b1Retrieved.get.data == "block one data"
+
+    let b1ByHash = memStore.getBlockByHash("hash_1")
+    check b1ByHash.isSome
+    check b1ByHash.get.id == "hash_1"
+
+    # Add second block using primitive overload
+    check memStore.addBlock(2, "block two data", "hash_2", 1000) == true
+    check memStore.getCurrentHeight() == 2
+    check memStore.getBlockCount() == 2
+
+    let latest = memStore.getLatestBlock()
+    check latest.isSome
+    check latest.get.height == 2
+    check latest.get.hash == "hash_2"
+    check latest.get.data == "block two data"
+
+    # Range retrieval
+    let rangeBlocks = memStore.getBlockRange(1, 2)
+    check rangeBlocks.len == 2
+    check rangeBlocks[0].height == 1
+    check rangeBlocks[1].height == 2
+
+    # Storage DTO access and rawDB
+    let storedDto = memStore.getStoredBlock(1)
+    check storedDto.isSome
+    check storedDto.get.hash == "hash_1"
+    check memStore.rawDB() != nil
+
+    # Interoperability via BlockchainStore facade
+    let facade: BlockchainStore = memStore
+    check facade.getCurrentHeight() == 2
+    check facade.getBlockCount() == 2
+    let facadeLatest = facade.getLatestBlock()
+    check facadeLatest.isSome
+    check facadeLatest.get.height == 2
+    check facade.hasBlock(1)
+    check facade.hasBlockWithHash("hash_2")
+
+    let b3 = newBlock("hash_3", 3, "block three via facade")
+    check facade.addBlock(b3) == true
+    check facade.getCurrentHeight() == 3
+    check memStore.getCurrentHeight() == 3
+
+  test "MemoryIndexStore: transaction indexing, query location, block txs, and removal":
+    let memStore = newMemoryIndexStore()
+    check memStore.getIndexedBlockCount() == 0
+    check memStore.getTransactionCount() == 0
+
+    let txA: TransactionId = "tx_alpha"
+    let txB: TransactionId = "tx_beta"
+    let h1: BlockHeight = 10
+    let h2: BlockHeight = 20
+
+    check memStore.indexTransaction(txA, h1, 0) == true
+    # Duplicate transaction ID is rejected
+    check memStore.indexTransaction(txA, h1, 1) == false
+    check memStore.hasTransaction(txA)
+    check not memStore.hasTransaction(txB)
+    check memStore.isBlockIndexed(h1)
+    check not memStore.isBlockIndexed(h2)
+
+    let locA = memStore.getTransactionLocation(txA)
+    check locA.isSome
+    check locA.get.blockHeight == h1
+    check locA.get.transactionIndex == 0
+
+    check memStore.indexTransaction(txB, h1, 1) == true
+    check memStore.getTransactionCount() == 2
+    check memStore.getIndexedBlockCount() == 1
+
+    let block10Txs = memStore.getBlockTransactions(h1)
+    check block10Txs.len == 2
+    check block10Txs == @[txA, txB]
+
+    # Remove one transaction
+    check memStore.removeTransaction(txA) == true
+    check not memStore.hasTransaction(txA)
+    check memStore.getTransactionLocation(txA).isNone
+    check memStore.getBlockTransactions(h1) == @[txB]
+    check memStore.isBlockIndexed(h1) # still has txB
+
+    # Removing non-existent returns false
+    check memStore.removeTransaction(txA) == false
+
+    # Remove remaining transaction in block 10
+    check memStore.removeTransaction(txB) == true
+    check memStore.getBlockTransactions(h1).len == 0
+    check not memStore.isBlockIndexed(h1)
+    check memStore.getIndexedBlockCount() == 0
+
+    # Interoperability via IndexStore facade
+    let facade: IndexStore = memStore
+    let txC: TransactionId = "tx_gamma"
+    check facade.indexTransaction(txC, h2, 0) == true
+    check facade.hasTransaction(txC)
+    check facade.isBlockIndexed(h2)
+    let locC = facade.getTransactionLocation(txC)
+    check locC.isSome
+    check locC.get.blockHeight == h2
+    check facade.getBlockTransactions(h2) == @[txC]
+
+    # Clear through facade
+    facade.clear()
+    check facade.getTransactionCount() == 0
+    check facade.getIndexedBlockCount() == 0
+    check not facade.hasTransaction(txC)
