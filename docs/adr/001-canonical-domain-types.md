@@ -20,7 +20,7 @@ These collisions blocked a coherent transaction lifecycle and made imports ambig
 
 Canonical blockchain domain types live in `src/common/types.nim`:
 
-- `Address`, `Balance`, `Nonce`, `TransactionId`, `Transaction`
+- `Address`, `Balance`, `Nonce`, `TransactionId`, `PublicKey`, `PrivateKey`, `Signature`, `Transaction`
 
 `common/types` is a leaf module: it must not depend on core, network, storage, or entry points.
 
@@ -51,7 +51,7 @@ Entry points will only parse input, call the composition root, and expose their 
 submit -> mempool validation -> block inclusion -> VM execution -> storage/index update
 ```
 
-Signature verification unification and `Block` / `BlockHeight` consolidation are also deferred.
+Signature verification is unified in [ADR 002](002-signature-authorization.md). `Block` / `BlockHeight` consolidation remains deferred.
 
 ## Consequences
 

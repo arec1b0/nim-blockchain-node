@@ -10,9 +10,9 @@ globs: src/cryptography/*.nim,src/core_engine/*.nim
 
 ### Placeholder Modules
 
-- [key_management.nim](mdc:src/cryptography/key_management.nim): Uses nimcrypto with simplified patterns
-- [signature_verification.nim](mdc:src/cryptography/signature_verification.nim): Basic string-based signatures
-- [zk_proofs.nim](mdc:src/cryptography/zk_proofs.nim): Simple proof concepts
+- [key_management.nim](mdc:src/cryptography/key_management.nim): Demo key generation and SHA-256 signing only. Do not export a second `verifySignature`.
+- [signature_verification.nim](mdc:src/cryptography/signature_verification.nim): The only verification API. Scheme `demo-sha256` is a teaching placeholder, not Ed25519, and it is forgeable given the public key.
+- [zk_proofs.nim](mdc:src/cryptography/zk_proofs.nim): String-prefix placeholder. Do not describe it as a real proof system.
 
 ## 🛡️ Security Patterns in Codebase
 
@@ -27,17 +27,19 @@ if stake <= 0 or c.validators.hasKey(id):
 ### Duplicate Prevention
 
 ```nim
-# Critical for blockchain integrity
-if pool.transactions.hasKey(tx.id):
-  return false  # Prevent transaction replay attacks
+# Signature authorization runs before duplicate checks.
+# addTransaction returns Status, not a bare bool.
+let auth = authorizeTransaction(tx)
+if not auth.ok:
+  return errStatus(maInvalidSignature)
 ```
 
 ### State Consistency
 
 ```nim
-# Validate state transitions
+# Validate state transitions after the demo signature check.
 if tx.nonce != vm.state.getNonce(tx.sender) + 1:
-  return false  # Prevent nonce manipulation
+  return errStatus(txBadNonce)
 ```
 
 ### Gas Metering

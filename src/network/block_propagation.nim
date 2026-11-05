@@ -1,7 +1,7 @@
 ## Block propagation and network distribution for blockchain consensus.
 ## Handles efficient block broadcasting to network peers.
 
-import std/times
+import std/[times, logging]
 
 type
   BlockId* = string
@@ -37,7 +37,7 @@ proc newBlock*(id: BlockId, height: BlockHeight, data: BlockData,
 proc propagateBlock*(blk: Block): PropagationStatus =
   ## Propagates a block across the peer-to-peer network.
   ## Note: This is a placeholder implementation.
-  echo "Propagating block: ", blk.id, " at height ", blk.height
+  debug("propagating block id=" & blk.id & " height=" & $blk.height)
   
   # Simulate propagation
   PropagationStatus(
@@ -64,11 +64,12 @@ proc propagateBlockWithRetry*(blk: Block, maxRetries: int = 3): PropagationStatu
     if status.result == Success:
       return status
     
-    echo "Propagation attempt ", attempt, " failed, retrying..."
+    debug("propagation attempt " & $attempt & " failed, retrying")
   
   PropagationStatus(result: Failed, peersReached: 0, propagationTime: 0)
 
 when isMainModule:
+  addHandler(newConsoleLogger(useStderr = true))
   let testBlock = newBlock("test_block_123", 1, "Sample block data")
   let status = propagateBlock(testBlock)
-  echo "Propagation result: ", status.result
+  info("propagation result " & $status.result)

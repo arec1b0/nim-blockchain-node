@@ -3,6 +3,14 @@ import ../../src/common/types
 import ../../src/network/p2p
 import ../../src/network/mempool
 import ../../src/network/block_propagation
+import ../../src/cryptography/key_management
+
+proc signedSample(id: string, fee: int, size: int): Transaction =
+  let keys = generateKeyPair()
+  signedTransaction(
+    Transaction(id: id, receiver: "r", amount: 1, fee: fee.Balance, nonce: 1, size: size),
+    keys
+  )
 
 suite "Network Layer Tests":
 
@@ -17,20 +25,39 @@ suite "Network Layer Tests":
 
   test "Mempool: transaction management":
     let mempool = newMempool(100)
-    let tx = Transaction(id: "tx1", fee: 100, timestamp: 0, size: 250)
-    check mempool.addTransaction(tx) == true
+    let tx = signedSample("tx1", 100, 250)
+    check mempool.addTransaction(tx).ok
     check mempool.hasTransaction("tx1") == true
-    check mempool.addTransaction(tx) == false  # Duplicate insertion
+    let duplicate = mempool.addTransaction(tx)
+    check not duplicate.ok
+    check duplicate.error == maDuplicate
     check mempool.removeTransaction("tx1") == true
     check mempool.hasTransaction("tx1") == false
-    
-    # Test fee-based ordering
-    let tx2 = Transaction(id: "tx2", fee: 200, timestamp: 0, size: 250)
-    let tx3 = Transaction(id: "tx3", fee: 50, timestamp: 0, size: 250)
-    discard mempool.addTransaction(tx2)
-    discard mempool.addTransaction(tx3)
+
+    let tx2 = signedSample("tx2", 200, 250)
+    let tx3 = signedSample("tx3", 50, 250)
+    check mempool.addTransaction(tx2).ok
+    check mempool.addTransaction(tx3).ok
     let orderedTxs = mempool.getTransactionsByFee(10)
     check orderedTxs[0].fee >= orderedTxs[1].fee
+
+  test "Mempool: rejects unsigned and invalid signatures":
+    let mempool = newMempool(100)
+    let keys = generateKeyPair()
+    var unsigned = signedTransaction(Transaction(
+      id: "unsigned", receiver: "bob", amount: 5, fee: 1, nonce: 1), keys)
+    unsigned.signature = ""
+    let missing = mempool.addTransaction(unsigned)
+    check not missing.ok
+    check missing.error == maMissingSignature
+    check mempool.transactionCount() == 0
+
+    var invalid = signedSample("bad", 1, 10)
+    invalid.signature = "00"
+    let rejected = mempool.addTransaction(invalid)
+    check not rejected.ok
+    check rejected.error == maInvalidSignature
+    check not mempool.hasTransaction("bad")
 
   test "Block Propagation: basic propagation":
     let blk = newBlock("block123", 1, "block_data")

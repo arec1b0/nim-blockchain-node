@@ -10,6 +10,8 @@ nimcache/
 # Logs
 logs/
 
+# Local node data and plaintext keystore
+data/
 # Nimble local dependency artifacts
 nimble.develop
 nimble.paths
