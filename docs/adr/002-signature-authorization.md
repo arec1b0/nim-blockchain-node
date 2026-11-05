@@ -58,7 +58,7 @@ Transfer, transaction validation, mempool admission, and initialization return `
 
 ### What this change does not do
 
-Zero-knowledge proofs stay string placeholders. Consensus, networking, and storage stay in-memory prototypes. The demo signature is not production cryptography.
+Zero-knowledge proofs stay string placeholders. Consensus is validator bookkeeping, not finality. Networking stays an in-memory placeholder. Account balances can be snapshotted to `accounts.json` (see ADR 003); blocks and the transaction index stay in memory. The demo signature is not production cryptography.
 
 ## Consequences
 

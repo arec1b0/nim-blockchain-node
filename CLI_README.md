@@ -97,7 +97,7 @@ nimble buildAll
 - `-h, --help`: Show help message
 - `-v, --verbose`: Enable verbose output
 - `-j, --json`: Output in JSON format (great for scripting)
-- `-d, --data-dir`: Specify data directory (default: data)
+- `-d, --data-dir`: Data directory (default: `data`, or `NIM_NODE_DATA_DIR`). Account balances and nonces are stored in `<data-dir>/accounts.json`. `--data-dir=:memory:` keeps those balances in the process only and does not store keys. Omitting the flag still uses `data`.
 
 ## 💡 Examples
 
@@ -151,7 +151,8 @@ nimble buildAll
 
 - **Private keys**: `account create` writes the private key to `<data-dir>/keystore/<address>.key` and does not print it. JSON output has no `private_key` field. The file is plaintext and is not encrypted. On Windows it cannot be given a POSIX 0600 ACL via Nim.
 - **Signatures**: Transfers need a keystore for the sender and a `demo-sha256` signature. That scheme is not Ed25519 and is forgeable if the public key is known. The `genesis` account has a balance and no key, so it cannot send.
-- **Genesis account**: The genesis account starts with 1,000,000 tokens in memory for tests. It is not a signing account.
+- **Genesis account**: A new account store starts genesis at 1,000,000. An existing `accounts.json` is reloaded and that balance is not reset. Genesis is not a signing account. Blocks, the mempool, and peers are not written to the data directory.
+- **Account snapshot**: `<data-dir>/accounts.json` is version 1 JSON. A checksum detects accidental edits. It is not a database. If the file is empty, malformed, an unknown version, or the checksum does not match, the command fails and the file is left in place. `:memory:` does not write this file.
 - **Transaction fees**: Default fee is 10 tokens, but you can specify custom fees.
 - **Logging**: `--verbose` turns on debug logs on stderr. `NIM_NODE_VERBOSE` and `NIM_NODE_DATA_DIR` apply when the matching CLI flag is absent. CLI flags win when they are set.
 

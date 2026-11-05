@@ -12,6 +12,7 @@ import std/[os, json, options, strutils]
 suite "CLI Tests":
 
   setup:
+    cliConfig.dataDir = MemoryDataDir
     discard initializeBlockchainNode()
 
   test "Node initialization":

@@ -6,6 +6,8 @@
 ##
 ## Path: `<dataDir>/keystore/<address>.key`
 ##
+## `:memory:` is rejected before any directory is created. It is not a path.
+##
 ## Format (UTF-8, one field per line):
 ##   version=1
 ##   scheme=demo-sha256
@@ -24,7 +26,7 @@
 ## Procedures in this module do not log private keys, public keys, or file bodies.
 
 import std/[os, strutils]
-import ../common/[types, result]
+import ../common/[types, result, config]
 import signature_verification
 
 type
@@ -80,6 +82,9 @@ proc removeQuiet(path: string) =
 proc saveKeystore*(dataDir: string, address: Address, publicKey: PublicKey,
     privateKey: PrivateKey): Status[KeystoreError] =
   ## Writes a new key file. Refuses to overwrite an existing key.
+  ## `:memory:` is not a directory and is rejected before any file is created.
+  if isMemoryDataDir(dataDir):
+    return errStatus(ksUnsafePath)
   if not isSafeKeyId(address) or not isSafeKeyId(addressFromPublicKey(publicKey)):
     return errStatus(ksUnsafePath)
   if publicKey.len == 0 or privateKey.len == 0:
@@ -109,6 +114,9 @@ proc saveKeystore*(dataDir: string, address: Address, publicKey: PublicKey,
 
 proc loadKeystore*(dataDir: string, address: Address): Result[StoredKey, KeystoreError] =
   ## Loads a key into memory for signing. Callers must not log `value.privateKey`.
+  ## `:memory:` is not a directory and is rejected before any file is created.
+  if isMemoryDataDir(dataDir):
+    return errResult(StoredKey, ksUnsafePath)
   if not isSafeKeyId(address):
     return errResult(StoredKey, ksUnsafePath)
   let path = keystoreFile(dataDir, address)
