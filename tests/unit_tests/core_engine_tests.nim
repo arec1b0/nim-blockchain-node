@@ -1,4 +1,5 @@
 import unittest
+import ../../src/common/types
 import ../../src/core_engine/consensus
 import ../../src/core_engine/state_management
 import ../../src/core_engine/vm
@@ -15,7 +16,8 @@ suite "Core Engine Tests":
     check not cons.isValidatorActive(1)
     check cons.removeValidator(2)
     check not cons.hasValidator(2)
-    check cons.calculateQuorum() == 1
+    # Only inactive validator 1 remains; quorum requires at least one active validator.
+    check cons.calculateQuorum() == 0
 
   test "State Management - Account Operations":
     var state = newStateDB()
@@ -39,9 +41,10 @@ suite "Core Engine Tests":
     let tx1 = Transaction(id: "tx1", sender: "Alice", receiver: "Bob", amount: 100, fee: 10, nonce: 1)
     let tx2 = Transaction(id: "tx2", sender: "Alice", receiver: "Bob", amount: 900, fee: 10, nonce: 2)
     check vm.applyTransaction(tx1)
-    check state.getBalance("Alice") == 890
-    check state.getBalance("Bob") == 600
+    # StateDB is a value type: execution mutates vm.state, not the caller's copy.
+    check vm.state.getBalance("Alice") == 890
+    check vm.state.getBalance("Bob") == 600
     check not vm.applyTransaction(tx2)
-    check state.getBalance("Alice") == 890
+    check vm.state.getBalance("Alice") == 890
     check vm.gasUsed == 21000
 

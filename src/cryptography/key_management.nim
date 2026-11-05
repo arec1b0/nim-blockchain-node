@@ -10,6 +10,11 @@ type
     publicKey*: PublicKey
     privateKey*: PrivateKey
 
+proc toByteSeq(s: string): seq[byte] =
+  result = newSeq[byte](s.len)
+  for i, ch in s:
+    result[i] = byte(ord(ch))
+
 proc generateKeyPair*(): KeyPair =
   ## Generates a new cryptographic key pair.
   ## Note: This is a simplified implementation for demonstration.
@@ -28,18 +33,19 @@ proc signMessage*(privateKey: PrivateKey, message: Message): Signature =
   ## Note: This is a simplified implementation for demonstration.
   let
     privKeyBytes = fromHex(privateKey)
-    messageBytes = cast[seq[byte]](message.toOpenArrayByte(0, message.high))
+    messageBytes = toByteSeq(message)
     signatureHash = sha256.digest(privKeyBytes & messageBytes)
   
   toHex(signatureHash.data)
 
 proc verifySignature*(publicKey: PublicKey, message: Message, signature: Signature): bool =
   ## Verifies that the signature is valid for the given message and public key.
-  ## Note: This is a simplified implementation for demonstration.
+  ## Note: This is a simplified placeholder: production code must derive the
+  ## verification material from the public key, not reuse the signing scheme.
   try:
     let
       pubKeyBytes = fromHex(publicKey)
-      messageBytes = cast[seq[byte]](message.toOpenArrayByte(0, message.high))
+      messageBytes = toByteSeq(message)
       expectedHash = sha256.digest(pubKeyBytes & messageBytes)
       actualSignature = fromHex(signature)
     

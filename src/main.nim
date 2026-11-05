@@ -4,7 +4,7 @@
 import core_engine/[consensus, state_management, vm]
 import storage/[blockchain_db, state_db, index_db]
 import network/[mempool, block_propagation, p2p]
-import std/times
+import common/types
 
 proc initializeNode(): bool =
   ## Initializes all blockchain node components.
@@ -18,7 +18,7 @@ proc initializeNode(): bool =
   
   # Initialize storage components
   let blockchainDB = newBlockchainDB()
-  let stateDB = newStateDB()
+  let stateDB = newGlobalStateStore()
   let indexDB = newIndexDB()
   echo "✅ Storage systems initialized"
   

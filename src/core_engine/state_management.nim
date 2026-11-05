@@ -1,10 +1,7 @@
 import std/tables
+import ../common/types
 
 type
-  Address* = string
-  Balance* = Natural
-  Nonce* = Natural
-  
   Account* = object
     balance*: Balance
     nonce*: Nonce

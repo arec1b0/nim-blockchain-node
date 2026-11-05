@@ -9,6 +9,7 @@ bin           = @["main", "blockchain_cli"]
 
 # Dependencies
 requires "nim >= 2.2.2"
+requires "nimcrypto"
 
 task build, "Compile blockchain node executable":
   exec "nim c -d:release src/main.nim"

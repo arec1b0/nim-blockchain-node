@@ -1,7 +1,8 @@
 ## Command-line interface for the Nim blockchain node.
 ## Provides interactive commands for node management and blockchain operations.
 
-import std/[strutils, os, parseopt, json, tables, times]
+import std/[strutils, os, parseopt, json, tables, times, options]
+import common/types
 import core_engine/[consensus, state_management, vm]
 import storage/[blockchain_db, state_db, index_db]
 import network/[mempool, block_propagation, p2p]
@@ -16,7 +17,7 @@ type
   BlockchainNode* = object
     consensus*: Consensus
     accountState*: StateDB
-    globalState*: StateDB
+    globalState*: GlobalStateStore
     blockchainDB*: BlockchainDB
     indexDB*: IndexDB
     mempool*: Mempool
@@ -25,7 +26,7 @@ type
 
 var 
   config = CliConfig(verbose: false, jsonOutput: false, dataDir: "data")
-  node: BlockchainNode
+  node*: BlockchainNode
 
 proc initializeBlockchainNode*(): bool =
   ## Initialize all blockchain components
@@ -33,7 +34,7 @@ proc initializeBlockchainNode*(): bool =
     # Initialize core components
     node.consensus = newConsensus()
     node.accountState = newStateDB()
-    node.globalState = newStateDB()
+    node.globalState = newGlobalStateStore()
     node.blockchainDB = newBlockchainDB()
     node.indexDB = newIndexDB()
     node.mempool = newMempool()
@@ -258,7 +259,7 @@ proc showLatestBlock() =
     echo "No blocks found"
 
 proc getBlock(height: int) =
-  let blockOpt = node.blockchainDB.getBlock(height.BlockHeight)
+  let blockOpt = node.blockchainDB.getBlock(blockchain_db.BlockHeight(height))
   if blockOpt.isSome:
     let blk = blockOpt.get
     if config.jsonOutput:

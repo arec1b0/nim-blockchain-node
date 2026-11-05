@@ -4,7 +4,15 @@
 This document outlines the architectural design of the Nim Blockchain Node, focusing on its modular structure, scalability, performance, and security considerations. It provides a detailed breakdown of the various components and their interactions within the blockchain system.
 
 ## 🧱 Architectural Layers
-The architecture is composed of distinct, modular layers designed explicitly for clarity, security, scalability, and ease of maintenance:
+The architecture is composed of distinct, modular layers designed explicitly for clarity, security, scalability, and ease of maintenance.
+
+### 0. Common Domain Types (`src/common/types.nim`)
+
+Canonical shared types for cross-layer use:
+
+- `Address`, `Balance`, `Nonce`, `TransactionId`, `Transaction`
+
+This module is a leaf dependency and must not import higher-level layers. The VM and mempool both use the same `Transaction` type. See [ADR 001](adr/001-canonical-domain-types.md).
 
 ### 1. Core Engine Layer
 
@@ -59,15 +67,17 @@ The architecture is composed of distinct, modular layers designed explicitly for
 - Provides fast indexing and retrieval of transaction-related data.
 - Enhances query performance for blockchain analytics.
 
-#### **State Database Module**
-- Manages the blockchain state efficiently, supporting versioned storage.
+#### **Global State Store Module** (`GlobalStateStore`)
+- Manages versioned key-value blockchain state (distinct from the account-ledger `StateDB` in state management).
 - Enables quick historical state access and efficient caching.
 
 ## 📐 Component Interactions
-- **Transactions** flow from network modules (P2P/Mempool) into the Core Engine for execution and validation.
+- **Transactions** use one canonical `Transaction` type shared by mempool and VM.
+- **Account ledger** (`StateDB` in state management) tracks balances and nonces; **GlobalStateStore** holds unrelated KV state.
 - **Consensus** validates blocks and determines block acceptance.
 - **Validated blocks** are stored securely in the Blockchain Database.
-- **Indexes** are updated for quick transaction retrieval, while the **State Database** maintains accurate blockchain state.
+- **Indexes** are updated for quick transaction retrieval.
+- A single composition root (`src/node.nim`) is planned to replace duplicated wiring in `main.nim` and `cli.nim` (see ADR 001).
 
 ## 🔒 Security and Cryptographic Measures
 - Employs explicit cryptographic standards for key generation and signature verification.

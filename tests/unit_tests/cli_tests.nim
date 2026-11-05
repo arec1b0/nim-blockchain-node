@@ -1,8 +1,10 @@
 import unittest
+import ../../src/common/types
 import ../../src/cli
 import ../../src/core_engine/[consensus, state_management]
 import ../../src/storage/blockchain_db
-import std/[os, strutils]
+import ../../src/network/mempool
+import std/[os, strutils, options]
 
 suite "CLI Tests":
 
@@ -49,9 +51,9 @@ suite "CLI Tests":
     check success == true
     check node.blockchainDB.getCurrentHeight() == 1
     
-    let block = node.blockchainDB.getBlock(1)
-    check block.isSome
-    check block.get.data == "test block data"
+    let stored = node.blockchainDB.getBlock(1)
+    check stored.isSome
+    check stored.get.data == "test block data"
 
   test "Mempool operations":
     # Test mempool functionality

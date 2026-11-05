@@ -1,4 +1,5 @@
 import unittest
+import ../../src/common/types
 import ../../src/network/p2p
 import ../../src/network/mempool
 import ../../src/network/block_propagation
