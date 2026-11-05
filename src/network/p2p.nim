@@ -2,6 +2,7 @@
 ## Manages network connections and peer discovery.
 
 import std/tables
+import ../common/result
 
 type
   PeerAddress* = string
@@ -9,6 +10,10 @@ type
   
   ConnectionStatus* = enum
     Disconnected, Connecting, Connected, Failed
+
+  PeerAddError* = enum
+    peerAddNone
+    peerAddMaxPeersReached
     
   Peer* = object
     id*: PeerId
@@ -19,17 +24,29 @@ type
   Network* = ref object
     peers*: Table[PeerId, Peer]
     maxPeers*: int
+    nextPeerId*: int
+
+  SimulatedNetwork* = Network
 
 proc newNetwork*(maxPeers: int = 100): Network =
   ## Creates a new P2P network manager.
   Network(
     peers: initTable[PeerId, Peer](),
-    maxPeers: maxPeers
+    maxPeers: maxPeers,
+    nextPeerId: 0
   )
 
-proc addPeer*(network: Network, address: PeerAddress): PeerId =
+proc newSimulatedNetwork*(maxPeers: int = 100): SimulatedNetwork =
+  ## Creates a new simulated network (educational in-memory P2P manager).
+  newNetwork(maxPeers)
+
+proc addPeer*(network: Network, address: PeerAddress): Result[PeerId, PeerAddError] =
   ## Adds a new peer to the network and returns its ID.
-  let peerId = "peer_" & $network.peers.len
+  ## Enforces maxPeers limit: rejects with peerAddMaxPeersReached when full.
+  if network.peers.len >= network.maxPeers:
+    return errResult(PeerId, peerAddMaxPeersReached)
+  let peerId = "peer_" & $network.nextPeerId
+  inc network.nextPeerId
   let peer = Peer(
     id: peerId,
     address: address,
@@ -37,7 +54,7 @@ proc addPeer*(network: Network, address: PeerAddress): PeerId =
     lastSeen: 0
   )
   network.peers[peerId] = peer
-  peerId
+  okResult(peerId, PeerAddError)
 
 proc connectPeer*(network: Network, peerId: PeerId): bool =
   ## Marks a peer as connected.
