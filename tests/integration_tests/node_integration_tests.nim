@@ -8,6 +8,8 @@ import ../../src/storage/state_db
 import ../../src/storage/index_db
 import ../../src/network/mempool
 import ../../src/network/block_propagation
+import ../../src/cryptography/key_management
+import ../../src/cryptography/signature_verification
 import std/options
 
 suite "Blockchain Node Integration Tests":
@@ -25,20 +27,21 @@ suite "Blockchain Node Integration Tests":
     let indexDB = newIndexDB()
     let mempool = newMempool()
 
-    # Initialize account states
-    accountStateDB.setBalance("Alice", 1000)
+    # Initialize account states. The sender address comes from the demo key.
+    let keys = generateKeyPair()
+    let sender = addressFromPublicKey(keys.publicKey)
+    accountStateDB.setBalance(sender, 1000)
     accountStateDB.setBalance("Bob", 500)
 
     # Initialize VM
     var vm = newVM(accountStateDB, 100000)
 
-    # Simulate adding transaction to mempool
-    let tx = Transaction(id: "tx999", sender: "Alice", receiver: "Bob", 
-                        amount: 100, fee: 10, nonce: 1)
-    check mempool.addTransaction(tx) == true
+    let tx = signedTransaction(Transaction(
+      id: "tx999", receiver: "Bob", amount: 100, fee: 10, nonce: 1), keys)
+    check mempool.addTransaction(tx).ok
 
     # Execute transaction in VM
-    check vm.applyTransaction(tx) == true
+    check vm.applyTransaction(tx).ok
 
     # Create and propagate block
     let blk = newBlock("blk999", 1, "tx999 included")
@@ -60,7 +63,7 @@ suite "Blockchain Node Integration Tests":
     check globalStateDB.getState("accountA") == 500
 
     # Verify final states (StateDB is a value type; VM holds the mutated copy)
-    check vm.state.getBalance("Alice") == 890  # 1000 - 100 - 10
+    check vm.state.getBalance(sender) == 890  # 1000 - 100 - 10
     check vm.state.getBalance("Bob") == 600    # 500 + 100
     check blockchainDB.getCurrentHeight() == 1
     check consensus.activeValidatorCount() == 2

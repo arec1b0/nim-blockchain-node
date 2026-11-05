@@ -1,18 +1,17 @@
 ## Command-line interface for the Nim blockchain node.
-## Provides interactive commands for node management and blockchain operations.
+## Educational prototype. Command results are written to stdout.
+## Diagnostics use std/logging on stderr (`common/logsetup`).
+## Private keys are written only to the keystore file and are never printed.
 
-import std/[strutils, os, parseopt, json, tables, times, options]
-import common/types
+import std/[strutils, os, json, times, logging, options]
+import common/[types, result, config, logsetup]
 import core_engine/[consensus, state_management, vm]
 import storage/[blockchain_db, state_db, index_db]
-import network/[mempool, block_propagation, p2p]
-import cryptography/key_management
+import network/[mempool, p2p]
+import cryptography/[key_management, keystore, signature_verification]
 
 type
-  CliConfig* = object
-    verbose*: bool
-    jsonOutput*: bool
-    dataDir*: string
+  CliConfig* = NodeConfig
 
   BlockchainNode* = object
     consensus*: Consensus
@@ -24,14 +23,46 @@ type
     network*: Network
     vm*: VM
 
-var 
-  config = CliConfig(verbose: false, jsonOutput: false, dataDir: "data")
+  CliInitError* = enum
+    cliInitNone
+    cliInitUnexpected
+
+  CreatedAccount* = object
+    address*: Address
+    publicKey*: PublicKey
+    keystorePath*: string
+
+  TransferError* = enum
+    trNone
+    trKeystoreMissing
+    trKeystoreMalformed
+    trKeystoreUnsafePath
+    trKeystoreIo
+    trZeroAmount
+    trMissingPublicKey
+    trMissingSignature
+    trSenderKeyMismatch
+    trInvalidSignature
+    trInsufficientBalance
+    trBadNonce
+    trGasLimitExceeded
+    trDebitFailed
+
+var
+  cliConfig* = NodeConfig(verbose: false, jsonOutput: false, dataDir: DefaultDataDir)
   node*: BlockchainNode
 
-proc initializeBlockchainNode*(): bool =
-  ## Initialize all blockchain components
+proc emitText(message: string) =
+  ## User-facing command output. The message must not contain key material.
+  if cliConfig.jsonOutput:
+    echo (%*{"success": false, "error": message}).pretty()
+  else:
+    echo message
+  warn(message)
+
+proc initializeBlockchainNode*(): Status[CliInitError] =
+  ## Initialize in-memory components. Does not start a long-running process.
   try:
-    # Initialize core components
     node.consensus = newConsensus()
     node.accountState = newStateDB()
     node.globalState = newGlobalStateStore()
@@ -39,40 +70,45 @@ proc initializeBlockchainNode*(): bool =
     node.indexDB = newIndexDB()
     node.mempool = newMempool()
     node.network = newNetwork()
-    node.vm = newVM(node.accountState, 1000000)
-    
-    # Add genesis validator
-    discard node.consensus.addValidator(1, 10000)
-    
-    # Create genesis account
+    # Fund genesis before copying the value-type ledger into the VM.
     node.accountState.setBalance("genesis", 1000000)
-    
-    echo "✅ Blockchain node initialized successfully"
-    return true
-  except:
-    echo "❌ Failed to initialize blockchain node: ", getCurrentExceptionMsg()
-    return false
+    node.vm = newVM(node.accountState, 1000000)
+    discard node.consensus.addValidator(1, 10000)
+    debug("in-memory node initialized")
+    info("blockchain node initialized")
+    okStatus(CliInitError)
+  except CatchableError as e:
+    error("blockchain node initialization failed: " & $e.name)
+    errStatus(cliInitUnexpected)
 
 proc printHelp() =
   echo """
-Nim Blockchain Node CLI
+Nim Blockchain Node CLI (educational prototype)
 
 USAGE:
     blockchain-cli [OPTIONS] COMMAND [ARGS]
 
 OPTIONS:
     -h, --help        Show this help message
-    -v, --verbose     Enable verbose output
-    -j, --json        Output in JSON format
-    -d, --data-dir    Data directory (default: data)
+    -v, --verbose     Debug logging on stderr. When omitted, NIM_NODE_VERBOSE is used.
+    -j, --json        Output command results in JSON format
+    -d, --data-dir    Data directory (default: data, or NIM_NODE_DATA_DIR)
+
+Precedence: CLI flags, then NIM_NODE_DATA_DIR / NIM_NODE_VERBOSE, then defaults.
+--verbose is a presence flag and does not turn an environment setting off.
+Options must come before the command.
 
 COMMANDS:
     node              Node operations
     account           Account management
-    transaction       Transaction operations  
+    transaction       Transaction operations
     block             Block operations
     network           Network operations
     consensus         Consensus operations
+
+Private keys are written under <data-dir>/keystore and are not printed.
+The keystore is plaintext. The signature scheme is demo-sha256, not Ed25519.
+This process initializes and exits; it is not a long-running server.
 
 Use 'blockchain-cli COMMAND --help' for more information on a command.
 """
@@ -99,10 +135,13 @@ USAGE:
     blockchain-cli account COMMAND
 
 COMMANDS:
-    create            Create a new account
+    create            Create a new account (private key goes to the keystore only)
     balance ADDRESS   Show account balance
     list              List all accounts
     transfer FROM TO AMOUNT [FEE]  Transfer funds between accounts
+
+The sender must have a keystore file in the data directory. The genesis
+account is funded in memory and has no signing key, so it cannot transfer.
 """
 
 proc printTransactionHelp() =
@@ -129,12 +168,12 @@ USAGE:
 COMMANDS:
     latest                        Show latest block
     get HEIGHT                    Get block by height
-    list [START] [END]           List blocks in range
+    list [START] [END]            List blocks in range
     height                        Show current blockchain height
 """
 
 proc nodeStatus() =
-  if config.jsonOutput:
+  if cliConfig.jsonOutput:
     let status = %*{
       "height": node.blockchainDB.getCurrentHeight(),
       "validators": node.consensus.activeValidatorCount(),
@@ -145,103 +184,189 @@ proc nodeStatus() =
     }
     echo status.pretty()
   else:
-    echo "📊 Node Status:"
-    echo "   Blockchain Height: ", node.blockchainDB.getCurrentHeight()
-    echo "   Active Validators: ", node.consensus.activeValidatorCount()
-    echo "   Pending Transactions: ", node.mempool.transactionCount()
-    echo "   Connected Peers: ", node.network.connectedPeerCount()
-    echo "   Gas Limit: ", node.vm.gasLimit
-    echo "   Gas Used: ", node.vm.gasUsed
+    echo "Node Status:"
+    echo "  Blockchain Height: ", node.blockchainDB.getCurrentHeight()
+    echo "  Active Validators: ", node.consensus.activeValidatorCount()
+    echo "  Pending Transactions: ", node.mempool.transactionCount()
+    echo "  Connected Peers: ", node.network.connectedPeerCount()
+    echo "  Gas Limit: ", node.vm.gasLimit
+    echo "  Gas Used: ", node.vm.gasUsed
 
-proc createAccount(): string =
-  let keyPair = generateKeyPair()
-  let address = keyPair.publicKey[0..7]  # Use first 8 chars as address
-  node.accountState.setBalance(address, 0)
-  
-  if config.jsonOutput:
-    let account = %*{
-      "address": address,
-      "public_key": keyPair.publicKey,
-      "private_key": keyPair.privateKey,
-      "balance": 0
-    }
-    echo account.pretty()
-  else:
-    echo "✅ Account created:"
-    echo "   Address: ", address
-    echo "   Public Key: ", keyPair.publicKey
-    echo "   ⚠️  Save your private key: ", keyPair.privateKey
-  
-  return address
+proc createdAccountJson*(account: CreatedAccount, balance: Balance): JsonNode =
+  ## JSON command result. Intentionally has no private key field.
+  %*{
+    "address": account.address,
+    "public_key": account.publicKey,
+    "balance": balance,
+    "keystore": account.keystorePath,
+    "keystore_format": "plaintext-educational",
+    "signature_scheme": DemoSignatureScheme,
+    "warning": "plaintext educational keystore; demo-sha256 is not unforgeable"
+  }
+
+proc createAccount*(): Result[CreatedAccount, KeystoreError] =
+  ## Creates a key, stores it in the keystore, and prints only public data.
+  try:
+    let keyPair = generateKeyPair()
+    let address = addressFromPublicKey(keyPair.publicKey)
+    let saved = saveKeystore(cliConfig.dataDir, address, keyPair.publicKey, keyPair.privateKey)
+    if not saved.ok:
+      emitText("Account creation failed: the keystore was not written.")
+      return errResult(CreatedAccount, saved.error)
+    node.vm.state.setBalance(address, 0)
+    let created = CreatedAccount(
+      address: address,
+      publicKey: keyPair.publicKey,
+      keystorePath: keystoreFile(cliConfig.dataDir, address)
+    )
+    if cliConfig.jsonOutput:
+      echo createdAccountJson(created, 0).pretty()
+    else:
+      echo "Account created:"
+      echo "  Address: ", created.address
+      echo "  Public key: ", created.publicKey
+      echo "  Keystore: ", created.keystorePath
+      echo "  The private key was written only to that keystore file."
+      echo "  The file is plaintext and is not encrypted."
+      echo "  On Windows the file cannot be given a POSIX owner-only mode."
+    info("account created address=" & created.address)
+    okResult(created, KeystoreError)
+  except CatchableError:
+    emitText("Account creation failed.")
+    errResult(CreatedAccount, ksIo)
 
 proc showBalance(address: string) =
-  let balance = node.accountState.getBalance(address)
-  let nonce = node.accountState.getNonce(address)
-  
-  if config.jsonOutput:
-    let info = %*{
+  let balance = node.vm.state.getBalance(address)
+  let nonce = node.vm.state.getNonce(address)
+  if cliConfig.jsonOutput:
+    let infoNode = %*{
       "address": address,
       "balance": balance,
       "nonce": nonce
     }
-    echo info.pretty()
+    echo infoNode.pretty()
   else:
-    echo "💰 Account Balance:"
-    echo "   Address: ", address
-    echo "   Balance: ", balance
-    echo "   Nonce: ", nonce
+    echo "Account Balance:"
+    echo "  Address: ", address
+    echo "  Balance: ", balance
+    echo "  Nonce: ", nonce
 
 proc listAccounts() =
-  echo "📋 All Accounts:"
-  var count = 0
-  for address in ["genesis"]:  # We'd need to track created accounts in real implementation
-    let balance = node.accountState.getBalance(address)
-    echo "   ", address, " - Balance: ", balance
-    inc count
-  
-  if count == 0:
-    echo "   No accounts found"
+  echo "Accounts:"
+  let balance = node.vm.state.getBalance("genesis")
+  echo "  genesis - Balance: ", balance
+  echo "  (genesis has no keystore and cannot authorize transfers)"
 
-proc transferFunds(fromAddr, toAddr: string, amount: int, fee: int = 10): bool =
-  let senderNonce = node.accountState.getNonce(fromAddr) + 1
-  let tx = Transaction(
+proc describeTransfer(err: TransferError): string =
+  case err
+  of trNone:
+    "Transfer failed."
+  of trKeystoreMissing:
+    "Transfer failed: no keystore file for the sender. Create the account on this node first."
+  of trKeystoreMalformed:
+    "Transfer failed: the keystore file is malformed or uses an unsupported scheme."
+  of trKeystoreUnsafePath:
+    "Transfer failed: the sender address is not a safe keystore id."
+  of trKeystoreIo:
+    "Transfer failed: the keystore could not be read."
+  of trZeroAmount:
+    "Transfer failed: amount must be greater than zero."
+  of trMissingPublicKey, trMissingSignature:
+    "Transfer failed: the transaction is unsigned."
+  of trSenderKeyMismatch:
+    "Transfer failed: the sender does not match the keystore public key."
+  of trInvalidSignature:
+    "Transfer failed: invalid signature."
+  of trInsufficientBalance:
+    "Transfer failed: insufficient balance."
+  of trBadNonce:
+    "Transfer failed: the nonce does not match the account sequence."
+  of trGasLimitExceeded:
+    "Transfer failed: gas limit exceeded."
+  of trDebitFailed:
+    "Transfer failed: the sender balance could not be debited."
+
+proc fromKeystore(err: KeystoreError): TransferError =
+  case err
+  of ksNone, ksMalformed, ksExists: trKeystoreMalformed
+  of ksMissing: trKeystoreMissing
+  of ksUnsafePath: trKeystoreUnsafePath
+  of ksIo: trKeystoreIo
+
+proc fromTx(err: TxError): TransferError =
+  case err
+  of txNone, txDebitFailed: trDebitFailed
+  of txZeroAmount: trZeroAmount
+  of txMissingPublicKey: trMissingPublicKey
+  of txMissingSignature: trMissingSignature
+  of txSenderKeyMismatch: trSenderKeyMismatch
+  of txInvalidSignature: trInvalidSignature
+  of txInsufficientBalance: trInsufficientBalance
+  of txBadNonce: trBadNonce
+  of txGasLimitExceeded: trGasLimitExceeded
+
+proc transferFunds(fromAddr, toAddr: string, amount: int, fee: int = 10): Status[TransferError] =
+  ## Signs with the sender's keystore key, then applies the VM and mempool gates.
+  ## The VM runs first (existing CLI order). Both gates call authorizeTransaction.
+  debug("transfer requested from=" & fromAddr & " to=" & toAddr)
+  if amount <= 0:
+    emitText(describeTransfer(trZeroAmount))
+    return errStatus(trZeroAmount)
+  if fee < 0:
+    emitText("Transfer failed: fee cannot be negative.")
+    return errStatus(trZeroAmount)
+  var loaded = loadKeystore(cliConfig.dataDir, fromAddr)
+  if not loaded.ok:
+    let reason = fromKeystore(loaded.error)
+    emitText(describeTransfer(reason))
+    return errStatus(reason)
+  var tx = Transaction(
     id: "tx_" & $getTime().toUnix(),
     sender: fromAddr,
     receiver: toAddr,
     amount: amount.Balance,
     fee: fee.Balance,
-    nonce: senderNonce.Nonce
+    nonce: Nonce(node.vm.state.getNonce(fromAddr) + 1),
+    publicKey: loaded.value.publicKey
   )
-  
-  if node.vm.applyTransaction(tx):
-    discard node.mempool.addTransaction(tx)
-    
-    if config.jsonOutput:
-      let result = %*{
-        "success": true,
-        "transaction_id": tx.id,
-        "from": fromAddr,
-        "to": toAddr,
-        "amount": amount,
-        "fee": fee
-      }
-      echo result.pretty()
-    else:
-      echo "✅ Transfer successful:"
-      echo "   Transaction ID: ", tx.id
-      echo "   From: ", fromAddr, " (New balance: ", node.accountState.getBalance(fromAddr), ")"
-      echo "   To: ", toAddr, " (New balance: ", node.accountState.getBalance(toAddr), ")"
-    
-    return true
+  try:
+    tx.signature = signMessage(loaded.value.privateKey, transactionSigningPayload(tx))
+  except ValueError:
+    loaded.value.privateKey = ""
+    emitText(describeTransfer(trKeystoreMalformed))
+    return errStatus(trKeystoreMalformed)
+  loaded.value.privateKey = ""
+  let applied = node.vm.applyTransaction(tx)
+  if not applied.ok:
+    let reason = fromTx(applied.error)
+    emitText(describeTransfer(reason))
+    return errStatus(reason)
+  let admitted = node.mempool.addTransaction(tx)
+  if not admitted.ok:
+    warn("transaction applied but mempool rejected it id=" & shortId(tx.id))
+  if cliConfig.jsonOutput:
+    let payload = %*{
+      "success": true,
+      "transaction_id": tx.id,
+      "from": fromAddr,
+      "to": toAddr,
+      "amount": amount,
+      "fee": fee
+    }
+    echo payload.pretty()
   else:
-    echo "❌ Transfer failed: Insufficient balance or invalid transaction"
-    return false
+    echo "Transfer successful:"
+    echo "  Transaction ID: ", tx.id
+    echo "  From: ", fromAddr, " (New balance: ", node.vm.state.getBalance(fromAddr), ")"
+    echo "  To: ", toAddr, " (New balance: ", node.vm.state.getBalance(toAddr), ")"
+  info("transfer applied id=" & shortId(tx.id))
+  okStatus(TransferError)
 
 proc showLatestBlock() =
   let latestBlock = node.blockchainDB.getLatestBlock()
   if latestBlock.isSome:
     let blk = latestBlock.get
-    if config.jsonOutput:
+    if cliConfig.jsonOutput:
       let blockInfo = %*{
         "height": blk.height,
         "hash": blk.hash,
@@ -250,11 +375,11 @@ proc showLatestBlock() =
       }
       echo blockInfo.pretty()
     else:
-      echo "📦 Latest Block:"
-      echo "   Height: ", blk.height
-      echo "   Hash: ", blk.hash
-      echo "   Data: ", blk.data
-      echo "   Timestamp: ", blk.timestamp
+      echo "Latest Block:"
+      echo "  Height: ", blk.height
+      echo "  Hash: ", blk.hash
+      echo "  Data: ", blk.data
+      echo "  Timestamp: ", blk.timestamp
   else:
     echo "No blocks found"
 
@@ -262,7 +387,7 @@ proc getBlock(height: int) =
   let blockOpt = node.blockchainDB.getBlock(blockchain_db.BlockHeight(height))
   if blockOpt.isSome:
     let blk = blockOpt.get
-    if config.jsonOutput:
+    if cliConfig.jsonOutput:
       let blockInfo = %*{
         "height": blk.height,
         "hash": blk.hash,
@@ -271,167 +396,177 @@ proc getBlock(height: int) =
       }
       echo blockInfo.pretty()
     else:
-      echo "📦 Block #", height, ":"
-      echo "   Hash: ", blk.hash
-      echo "   Data: ", blk.data
-      echo "   Timestamp: ", blk.timestamp
+      echo "Block #", height, ":"
+      echo "  Hash: ", blk.hash
+      echo "  Data: ", blk.data
+      echo "  Timestamp: ", blk.timestamp
   else:
-    echo "❌ Block not found at height ", height
+    echo "Block not found at height ", height
 
 proc listPendingTransactions() =
-  echo "📋 Pending Transactions:"
+  echo "Pending Transactions:"
   let txs = node.mempool.getTransactionsByFee(10)
   if txs.len == 0:
-    echo "   No pending transactions"
+    echo "  No pending transactions"
   else:
     for tx in txs:
-      echo "   ", tx.id, " - Fee: ", tx.fee
+      echo "  ", tx.id, " - Fee: ", tx.fee
+
+proc parseNonNegative(args: seq[string]): Result[tuple[amount: int, fee: int], string] =
+  try:
+    let amount = parseInt(args[4])
+    let fee = if args.len > 5: parseInt(args[5]) else: 10
+    okResult((amount: amount, fee: fee), string)
+  except ValueError:
+    errResult(tuple[amount: int, fee: int], "amount and fee must be integers")
 
 proc processCommand(args: seq[string]): bool =
   if args.len == 0:
     printHelp()
     return true
-    
-  case args[0]:
+
+  case args[0]
   of "node":
     if args.len < 2:
       printNodeHelp()
       return true
-    case args[1]:
+    case args[1]
     of "status":
       nodeStatus()
     of "info":
-      nodeStatus()  # Same as status for now
+      nodeStatus()
     of "start":
-      echo "🚀 Starting blockchain node..."
-      discard initializeBlockchainNode()
+      info("start requested")
+      if not initializeBlockchainNode().ok:
+        return false
     of "stop":
-      echo "🛑 Stopping blockchain node..."
+      info("stop requested")
+      echo "Stop requested. This prototype is not a long-running process."
     else:
-      echo "❌ Unknown node command: ", args[1]
+      emitText("Unknown node command: " & args[1])
       printNodeHelp()
       return false
-      
+
   of "account":
     if args.len < 2:
       printAccountHelp()
       return true
-    case args[1]:
+    case args[1]
     of "create":
-      discard createAccount()
+      if not createAccount().ok:
+        return false
     of "balance":
       if args.len < 3:
-        echo "❌ Usage: account balance ADDRESS"
+        emitText("Usage: account balance ADDRESS")
         return false
       showBalance(args[2])
     of "list":
       listAccounts()
     of "transfer":
       if args.len < 5:
-        echo "❌ Usage: account transfer FROM TO AMOUNT [FEE]"
+        emitText("Usage: account transfer FROM TO AMOUNT [FEE]")
         return false
-      let fee = if args.len > 5: parseInt(args[5]) else: 10
-      discard transferFunds(args[2], args[3], parseInt(args[4]), fee)
+      let parsed = parseNonNegative(args)
+      if not parsed.ok:
+        emitText(parsed.error)
+        return false
+      if not transferFunds(args[2], args[3], parsed.value.amount, parsed.value.fee).ok:
+        return false
     else:
-      echo "❌ Unknown account command: ", args[1]
+      emitText("Unknown account command: " & args[1])
       printAccountHelp()
       return false
-      
+
   of "transaction", "tx":
     if args.len < 2:
       printTransactionHelp()
       return true
-    case args[1]:
+    case args[1]
     of "list":
       listPendingTransactions()
     of "create":
       if args.len < 5:
-        echo "❌ Usage: transaction create FROM TO AMOUNT [FEE]"
+        emitText("Usage: transaction create FROM TO AMOUNT [FEE]")
         return false
-      let fee = if args.len > 5: parseInt(args[5]) else: 10
-      discard transferFunds(args[2], args[3], parseInt(args[4]), fee)
+      let parsed = parseNonNegative(args)
+      if not parsed.ok:
+        emitText(parsed.error)
+        return false
+      if not transferFunds(args[2], args[3], parsed.value.amount, parsed.value.fee).ok:
+        return false
     else:
-      echo "❌ Unknown transaction command: ", args[1]
+      emitText("Unknown transaction command: " & args[1])
       printTransactionHelp()
       return false
-      
+
   of "block":
     if args.len < 2:
       printBlockHelp()
       return true
-    case args[1]:
+    case args[1]
     of "latest":
       showLatestBlock()
     of "get":
       if args.len < 3:
-        echo "❌ Usage: block get HEIGHT"
+        emitText("Usage: block get HEIGHT")
         return false
-      getBlock(parseInt(args[2]))
+      try:
+        getBlock(parseInt(args[2]))
+      except ValueError:
+        emitText("block height must be an integer")
+        return false
     of "height":
       echo "Current blockchain height: ", node.blockchainDB.getCurrentHeight()
     else:
-      echo "❌ Unknown block command: ", args[1]
+      emitText("Unknown block command: " & args[1])
       printBlockHelp()
       return false
-      
+
   of "help", "-h", "--help":
     printHelp()
-    
+
   else:
-    echo "❌ Unknown command: ", args[0]
+    emitText("Unknown command: " & args[0])
     printHelp()
     return false
-    
+
   return true
 
-proc parseOptions() =
-  var p = initOptParser()
-  
-  while true:
-    p.next()
-    case p.kind:
-    of cmdEnd: break
-    of cmdShortOption, cmdLongOption:
-      case p.key:
-      of "h", "help":
-        printHelp()
-        quit(0)
-      of "v", "verbose":
-        config.verbose = true
-      of "j", "json":
-        config.jsonOutput = true
-      of "d", "data-dir":
-        config.dataDir = p.val
-      else:
-        echo "❌ Unknown option: ", p.key
-        quit(1)
-    of cmdArgument:
-      # Arguments will be processed later
-      break
-
-proc runCLI*() =
-  ## Main CLI entry point
-  parseOptions()
-  
-  if not initializeBlockchainNode():
-    quit(1)
-  
-  let args = commandLineParams()
-  var cmdArgs: seq[string] = @[]
-  
-  # Filter out options to get just the commands
+proc commandArguments(): seq[string] =
   var skipNext = false
-  for i, arg in args:
+  for arg in commandLineParams():
     if skipNext:
       skipNext = false
       continue
-    if arg.startsWith("-"):
-      if arg in ["-d", "--data-dir"]:
-        skipNext = true
+    if arg in ["-d", "--data-dir"]:
+      skipNext = true
       continue
-    cmdArgs.add(arg)
-  
-  if not processCommand(cmdArgs):
+    if arg.startsWith("--data-dir="):
+      continue
+    if arg.startsWith("-"):
+      continue
+    result.add(arg)
+
+proc runCLI*() =
+  ## CLI composition root. Initializes logging, then runs one command and exits.
+  let overrides = readCliOverrides()
+  cliConfig = resolveConfig(overrides)
+  configureLogging(cliConfig.verbose)
+  if overrides.errorMessage.len > 0:
+    error(overrides.errorMessage)
+    quit(1)
+  if overrides.helpRequested:
+    printHelp()
+    quit(0)
+  try:
+    createDir(cliConfig.dataDir)
+  except CatchableError as e:
+    error("cannot create data directory: " & $e.name)
+    quit(1)
+  debug("data directory=" & cliConfig.dataDir)
+  if not initializeBlockchainNode().ok:
+    quit(1)
+  if not processCommand(commandArguments()):
     quit(1)
 
 when isMainModule:

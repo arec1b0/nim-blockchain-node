@@ -9,3 +9,6 @@ nimcache/
 
 # Logs
 logs/
+
+# Local node data and plaintext keystore
+data/
