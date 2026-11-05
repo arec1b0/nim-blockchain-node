@@ -23,11 +23,16 @@ Responsible for secure and efficient peer-to-peer interactions:
 - **Mempool Management**: Manages unconfirmed transactions, preventing duplication and ensuring transaction prioritization.
 - **Block Propagation**: Efficiently broadcasts new blocks to peers.
 
-### 3. Storage Layer
+### 4. Storage Layer
 Provides persistent and reliable storage:
 - **BlockchainDB**: Stores blocks by their height, ensuring quick retrieval.
 - **IndexDB**: Facilitates rapid transaction lookup, indexing transactions by their ID.
-- **StateDB**: Manages and stores state information accurately for quick access.
+- **GlobalStateStore** (`state_db.nim`): Versioned key-value global state (not the account ledger).
+
+### Common Domain Types
+- `src/common/types.nim`: Canonical `Address`, `Balance`, `Nonce`, `TransactionId`, and `Transaction` shared by VM and mempool.
+- Account ledger state remains `StateDB` in `state_management.nim`.
+- See [ADR 001](adr/001-canonical-domain-types.md) for ownership and the planned composition root.
 
 ## 🔒 Cryptographic Considerations
 - Implements explicit cryptographic best practices across key generation, signature verification, and zero-knowledge proofs.
@@ -35,9 +40,12 @@ Provides persistent and reliable storage:
 - Designed for easy integration with advanced cryptographic techniques (e.g., zk-SNARKs, confidential transactions).
 
 ## 🚧 Module Breakdown
+### Common
+- `common/types.nim`: Canonical domain types (`Transaction` and related aliases).
+
 ### Core Engine
 - `consensus.nim`: Implements the consensus logic to manage validator quorum and blockchain finality.
-- `state_management.nim`: Efficiently maintains state changes and ensures transactional integrity.
+- `state_management.nim`: Account-ledger `StateDB` (balances and nonces).
 - `vm.nim`: Manages transaction execution, accounting for computational resources via gas metering.
 
 ### Cryptographic Security
@@ -53,13 +61,13 @@ Provides persistent and reliable storage:
 ### Persistent Storage
 - `blockchain_db.nim`: Efficient storage and retrieval of blockchain data.
 - `index_db.nim`: Indexes transactions for rapid retrieval.
-- `state_db.nim`: Maintains state information, allowing consistent updates and fast access.
+- `state_db.nim`: `GlobalStateStore` for versioned key-value state.
 
-## 🚀 Node Initialization Sequence (main.nim)
-The `main.nim` file explicitly orchestrates the node initialization:
+## 🚀 Node Initialization Sequence (main.nim / cli.nim)
+Today, `main.nim` and `cli.nim` each wire components independently (defaults still diverge). A shared composition root is planned; see ADR 001.
 - Initializes consensus mechanisms, storage, and network management.
-- Performs explicit transaction and block operations to demonstrate end-to-end integration.
-- Clearly separates concerns and error handling, adhering to best practices in blockchain node architecture.
+- Demonstrates transaction and block operations for end-to-end integration.
+- Account ledger (`StateDB`) and global KV store (`GlobalStateStore`) are constructed separately.
 
 ## 🔒 Security and Cryptographic Considerations
 - All cryptographic-related code explicitly illustrates correct algorithmic patterns (key pair generation, signing, verification).

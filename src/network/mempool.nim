@@ -2,16 +2,10 @@
 ## Handles transaction ordering, validation, and mempool operations.
 
 import std/[tables, algorithm, times]
+import ../common/types
 
 type
-  TransactionId* = string
-  Fee* = Natural
-  
-  Transaction* = object
-    id*: TransactionId
-    fee*: Fee
-    timestamp*: int64  # When transaction was added to mempool
-    size*: int        # Transaction size in bytes
+  Fee* = Balance
 
   Mempool* = ref object
     transactions*: Table[TransactionId, Transaction]
@@ -33,9 +27,13 @@ proc addTransaction*(pool: Mempool, tx: Transaction): bool =
     
   if pool.transactions.len >= pool.maxSize:
     return false
+
+  var stored = tx
+  if stored.timestamp == 0:
+    stored.timestamp = getTime().toUnix
     
-  pool.transactions[tx.id] = tx
-  pool.totalFees += tx.fee
+  pool.transactions[stored.id] = stored
+  pool.totalFees += stored.fee
   true
 
 proc removeTransaction*(pool: Mempool, txId: TransactionId): bool =

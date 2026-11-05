@@ -1,16 +1,8 @@
 import state_management
+import ../common/types
 
 type
-  TransactionId* = string
   Gas* = Natural
-  
-  Transaction* = object
-    id*: TransactionId
-    sender*: Address  
-    receiver*: Address
-    amount*: Balance
-    fee*: Balance
-    nonce*: Nonce
 
   VM* = object
     state*: StateDB

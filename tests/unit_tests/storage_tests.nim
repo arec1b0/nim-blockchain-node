@@ -11,15 +11,15 @@ suite "Storage Layer Tests":
     check chainDB.addBlock(1, "BlockData1", "hash1", 1000) == true
     check chainDB.addBlock(1, "BlockDataDuplicate", "hash2", 2000) == false  # duplicates prevented
     
-    let block = chainDB.getBlock(1)
-    check block.isSome
-    check block.get.data == "BlockData1"
+    let stored = chainDB.getBlock(1)
+    check stored.isSome
+    check stored.get.data == "BlockData1"
     
     let nonExistent = chainDB.getBlock(2)
     check nonExistent.isNone
 
-  test "StateDB: state update and retrieval":
-    let stateDB = newStateDB()
+  test "GlobalStateStore: state update and retrieval":
+    let stateDB = newGlobalStateStore()
     check stateDB.setState("account1", 100)
     check stateDB.getState("account1") == 100
     check stateDB.getState("unknown") == 0  # default value when not found

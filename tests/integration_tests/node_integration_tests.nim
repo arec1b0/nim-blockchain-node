@@ -1,4 +1,5 @@
 import unittest
+import ../../src/common/types
 import ../../src/core_engine/consensus
 import ../../src/core_engine/state_management
 import ../../src/core_engine/vm
@@ -18,8 +19,8 @@ suite "Blockchain Node Integration Tests":
     discard consensus.addValidator(2, 1500)
 
     # Initialize Storage and Network Components
-    let globalStateDB = newStateDB()
-    let accountStateDB = newStateDB()
+    let globalStateDB = newGlobalStateStore()
+    var accountStateDB = newStateDB()
     let blockchainDB = newBlockchainDB()
     let indexDB = newIndexDB()
     let mempool = newMempool()
@@ -58,8 +59,8 @@ suite "Blockchain Node Integration Tests":
     check globalStateDB.setState("accountA", 500)
     check globalStateDB.getState("accountA") == 500
 
-    # Verify final states
-    check accountStateDB.getBalance("Alice") == 890  # 1000 - 100 - 10
-    check accountStateDB.getBalance("Bob") == 600    # 500 + 100
+    # Verify final states (StateDB is a value type; VM holds the mutated copy)
+    check vm.state.getBalance("Alice") == 890  # 1000 - 100 - 10
+    check vm.state.getBalance("Bob") == 600    # 500 + 100
     check blockchainDB.getCurrentHeight() == 1
     check consensus.activeValidatorCount() == 2
