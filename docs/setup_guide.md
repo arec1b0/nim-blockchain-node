@@ -71,12 +71,14 @@ Run the node after building:
 .\main.exe
 ```
 
-You should see the node initialization logs:
-```powershell
-🚀 Starting Nim Blockchain Node...
-✅ Block stored successfully.
-🎉 Node initialized successfully.
+You should see initialization logs on stderr, then the process exits. A successful run looks like:
+
+```text
+INFO: starting nim blockchain node (educational prototype)
+INFO: blockchain node is operational
 ```
+
+The emoji status lines from earlier drafts are gone. `main` is not a long-running server.
 
 ## 🛡️ Security and Maintenance
 - Regularly update Nim and dependencies.
@@ -85,4 +87,4 @@ You should see the node initialization logs:
 
 ---
 
-Your Nim Blockchain Node is now successfully set up and ready for further development or deployment. Refer to [overview.md](overview.md) and [architecture.md](architecture.md) for deeper insights.
+Your Nim Blockchain Node checkout is ready for local experiments. It is an educational prototype, not a deployment. See [overview.md](overview.md) and [architecture.md](architecture.md).

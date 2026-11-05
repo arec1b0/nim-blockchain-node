@@ -35,19 +35,19 @@ Write-Host "5️⃣ Checking genesis account balance..." -ForegroundColor Cyan
 ./blockchain_cli.exe account balance genesis
 
 Write-Host ""
-Write-Host "6️⃣ Transferring 1000 tokens from genesis to Alice..." -ForegroundColor Cyan
+Write-Host "6. Genesis has no keystore, so this transfer is rejected..." -ForegroundColor Cyan
 ./blockchain_cli.exe account transfer genesis $aliceAddr 1000 10
 
 Write-Host ""
-Write-Host "7️⃣ Checking Alice's balance..." -ForegroundColor Cyan
+Write-Host "7. Alice's balance is still zero (no faucet in this prototype)..." -ForegroundColor Cyan
 ./blockchain_cli.exe account balance $aliceAddr
 
 Write-Host ""
-Write-Host "8️⃣ Alice sends 200 tokens to Bob..." -ForegroundColor Cyan
+Write-Host "8. A signed transfer with no balance is rejected..." -ForegroundColor Cyan
 ./blockchain_cli.exe account transfer $aliceAddr $bobAddr 200 5
 
 Write-Host ""
-Write-Host "9️⃣ Checking final balances..." -ForegroundColor Cyan
+Write-Host "9. Balances (Bob is unchanged)..." -ForegroundColor Cyan
 Write-Host "Alice:" -ForegroundColor Yellow
 ./blockchain_cli.exe account balance $aliceAddr
 Write-Host "Bob:" -ForegroundColor Yellow

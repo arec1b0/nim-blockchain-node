@@ -1,98 +1,105 @@
 # Nim Blockchain Node Architecture
 
 ## 🔍 Introduction
-This document outlines the architectural design of the Nim Blockchain Node, focusing on its modular structure, scalability, performance, and security considerations. It provides a detailed breakdown of the various components and their interactions within the blockchain system.
+
+This document describes the module layout of an **educational prototype**. The node is not production-ready: signatures are a SHA-256 teaching scheme, zero-knowledge proofs are string placeholders, and storage and networking are in memory.
+
+It is not a claim of production consensus, cryptography, or persistence.
 
 ## 🧱 Architectural Layers
-The architecture is composed of distinct, modular layers designed explicitly for clarity, security, scalability, and ease of maintenance.
+The architecture is composed of distinct modules so each layer has a readable boundary. Several modules are placeholders; those limits are stated in the sections below.
 
 ### 0. Common Domain Types (`src/common/types.nim`)
 
 Canonical shared types for cross-layer use:
 
-- `Address`, `Balance`, `Nonce`, `TransactionId`, `Transaction`
+- `Address`, `Balance`, `Nonce`, `TransactionId`, `PublicKey`, `PrivateKey`, `Signature`, `Transaction`
 
-This module is a leaf dependency and must not import higher-level layers. The VM and mempool both use the same `Transaction` type. See [ADR 001](adr/001-canonical-domain-types.md).
+This module is a leaf dependency and must not import higher-level layers. The VM and mempool both use the same `Transaction` type, including `publicKey` and `signature`. See [ADR 001](adr/001-canonical-domain-types.md) and [ADR 002](adr/002-signature-authorization.md).
 
 ### 1. Core Engine Layer
 
 #### **Consensus Module**
-- Implements a hybrid consensus mechanism (Proof-of-Stake combined with Byzantine Fault Tolerance).
-- Manages validator participation, quorum calculation, and block finality.
-- Ensures network integrity and secure block generation.
+- In-memory validator set, stake numbers, and a quorum helper.
+- Not a Byzantine fault tolerant protocol and not a live finality gadget.
 
 #### **Virtual Machine (VM) Module**
-- Executes smart contracts and transactions with efficient gas metering.
-- Controls resource allocation to ensure predictable execution.
+- Applies value transfers with a fixed gas cost.
+- `validateTransaction` rejects unsigned and invalid `demo-sha256` signatures before it checks amount, balance, or nonce.
+- Does not execute general smart contracts.
 
 #### **State Management Module**
-- Tracks blockchain state transitions.
-- Ensures state consistency, supports concurrent updates, and manages state pruning.
+- In-memory account balances and nonces.
+- No concurrency control and no state pruning. `StateDB` is a value type.
 
 ### 2. Cryptography Layer
 
 #### **Key Management Module**
-- Generates, stores, and manages cryptographic keys securely.
-- Supports multiple cryptographic curves for flexibility and compatibility.
+- Generates a random 32-byte seed and a SHA-256 public key.
+- Signs with the demo scheme. It does not export `verifySignature`.
+- Does not store keys. The CLI keystore module does that, in plaintext.
 
 #### **Signature Verification Module**
-- Validates digital signatures to ensure transaction authenticity and integrity.
-- Implements efficient batch verification methods.
+- The only verification API (`verifySignature`, `authorizeTransaction`).
+- Scheme name: `demo-sha256`. Signature = hex(SHA-256(public key bytes || message bytes)).
+- Not Ed25519 or secp256k1. Anyone who knows the public key can forge a signature.
+- The signed payload is `id|sender|receiver|amount|fee|nonce`. The sender must match the first 8 hex characters of the public key.
 
 #### **Zero-Knowledge Proof Module**
-- Enables privacy-preserving transactions through zero-knowledge proofs.
-- Supports verification mechanisms (zk-SNARKs, zk-STARKs) explicitly designed for blockchain privacy.
+- String prefix placeholder (`zk_proof_` + data). Not a zk-SNARK or zk-STARK.
+- Left unchanged by the signature work. Do not treat it as a privacy system.
 
 ### 3. Network Layer
 
 #### **P2P Communication Module**
-- Manages peer discovery, connections, and network stability.
-- Implements NAT traversal and optimized network protocols.
+- In-memory peer list. No sockets, no NAT traversal, and no peer authentication.
 
 #### **Mempool Module**
-- Manages transaction storage and ordering before block inclusion.
-- Ensures efficient transaction processing and prevents duplication.
+- Stores pending transactions and orders them by fee.
+- `addTransaction` calls the same `authorizeTransaction` API as the VM and rejects unsigned or invalid demo signatures.
+- It does not check balance, nonce, amount, or gas. Those checks stay in the VM.
 
 #### **Block Propagation Module**
-- Efficiently propagates blocks to the network.
-- Minimizes network latency and bandwidth usage.
+- Placeholder that returns success without sending bytes to peers.
+- Logs the block id through `std/logging`. No latency or bandwidth optimization.
 
 ### 4. Storage Layer
 
 #### **Blockchain Database Module**
-- Stores blocks in an append-only structure optimized for immutable data.
-- Ensures fast retrieval and persistence of blockchain data.
+- In-memory map of blocks by height. Not durable across process restarts.
 
 #### **Index Database Module**
-- Provides fast indexing and retrieval of transaction-related data.
-- Enhances query performance for blockchain analytics.
+- In-memory index from transaction id to a height and position.
 
 #### **Global State Store Module** (`GlobalStateStore`)
-- Manages versioned key-value blockchain state (distinct from the account-ledger `StateDB` in state management).
-- Enables quick historical state access and efficient caching.
+- In-memory key-value map, separate from the account-ledger `StateDB`.
+- Not a historical state database.
 
 ## 📐 Component Interactions
-- **Transactions** use one canonical `Transaction` type shared by mempool and VM.
-- **Account ledger** (`StateDB` in state management) tracks balances and nonces; **GlobalStateStore** holds unrelated KV state.
-- **Consensus** validates blocks and determines block acceptance.
-- **Validated blocks** are stored securely in the Blockchain Database.
-- **Indexes** are updated for quick transaction retrieval.
-- A single composition root (`src/node.nim`) is planned to replace duplicated wiring in `main.nim` and `cli.nim` (see ADR 001).
+- **Transactions** use one canonical `Transaction` type shared by mempool and VM, including `publicKey` and `signature`.
+- **Authorization:** mempool admission and `validateTransaction` both call `authorizeTransaction`. The CLI still applies the VM first and then admits the same transaction to the mempool. A long-running block producer is not implemented; `main` initializes and exits.
+- **Account ledger** (`StateDB` in state management) tracks balances and nonces; **GlobalStateStore** holds unrelated KV state. `StateDB` is a value type. The CLI reads balances from `vm.state` after execution.
+- **Keys** are written only to `<dataDir>/keystore/<address>.key` (plaintext). See ADR 002 for the format and the Windows permission limit.
+- **Configuration** is a `NodeConfig` value: CLI flags, then `NIM_NODE_DATA_DIR` and `NIM_NODE_VERBOSE`, then defaults. Logging is configured from `main` and `runCLI`.
+- **Consensus** in this tree is validator bookkeeping, not a Byzantine protocol implementation.
+- A single composition root (`src/node.nim`) is still only planned. `main.nim` and `cli.nim` wire components separately (see ADR 001).
 
 ## 🔒 Security and Cryptographic Measures
-- Employs explicit cryptographic standards for key generation and signature verification.
-- Incorporates advanced cryptographic techniques (e.g., zero-knowledge proofs) to enhance privacy and security.
-- Clearly separates concerns to isolate security-critical modules.
+- The signature check is real as a gate and fake as cryptography: mismatched demo signatures are rejected, and the scheme is forgeable with the public key.
+- Private keys are not part of CLI JSON or log lines. The keystore file is plaintext.
+- Zero-knowledge helpers do not hide data.
+- Diagnostic logs use `std/logging` and must not include private keys, signatures, or keystore bodies.
 
 ## 🚧 Scalability and Performance
-- Designed explicitly for high-performance operation leveraging Nim’s concurrency and system-level capabilities.
-- Modular design allows horizontal scaling and future enhancements such as sharding.
+- The modules are separated so later replacements have a boundary.
+- Nothing here is sized or measured as a production deployment.
 
 ## 🚀 Future Enhancements
-- Integration of robust cryptographic libraries for production-grade security.
-- Implementation of advanced network protocols (libp2p).
-- Enhanced error handling, logging, and analytics modules.
+- Replace `demo-sha256` with an audited Ed25519 or secp256k1 implementation.
+- Replace the zero-knowledge placeholder.
+- Persist blocks and state, and encrypt or otherwise protect the keystore.
+- Run a long-lived process. `main` currently exits after initialization on purpose.
 
 ---
 
-This architecture explicitly addresses critical blockchain requirements such as security, scalability, maintainability, and performance. Its clear modular design allows for robust future expansion and ongoing development.
+This architecture is a teaching layout. It does not satisfy production requirements for consensus, cryptography, networking, or storage.

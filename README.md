@@ -1,107 +1,109 @@
 # Nim Blockchain Node
 
-## 🚀 Introduction
+## Introduction
 
-The Nim Blockchain Node is a modular, high-performance blockchain node implementation written in the Nim programming language, designed for security, scalability, and maintainability. It provides a clear separation of concerns through distinct layers and leverages advanced cryptographic techniques.
+This repository is an **educational prototype** of a modular blockchain node written in Nim. It is a place to read layer boundaries, a transaction path, and a deliberately incomplete crypto stack.
 
-## 🧱 Key Components
+It is **not production-ready**. It does not provide real unforgeability, encrypted key storage, persistent consensus, or a private network. Do not deploy it to hold value.
 
-- **Core Engine Layer:** Handles consensus mechanisms, virtual machine execution, and state management.
-- **Cryptography Layer:** Provides key management, signature verification, and zero-knowledge proofs.
-- **Network Layer:** Manages peer-to-peer communication, mempool handling, and block propagation.
-- **Storage Layer:** Offers efficient and reliable blockchain, index, and state data storage.
+## What is actually implemented
 
-## 🚀 Quick Start
+- **Core engine:** in-memory consensus bookkeeping, a gas-metered transfer VM, and an account ledger.
+- **Cryptography:** a SHA-256 teaching signature named `demo-sha256` (not Ed25519 or secp256k1) and a string-prefix zero-knowledge placeholder.
+- **Network:** an in-memory mempool and placeholder peer and block propagation types.
+- **Storage:** in-memory maps, not a durable database.
+- **CLI:** account creation writes a plaintext keystore; transfers must carry a demo signature.
+
+The signature formula, keystore format, configuration precedence, and CI workflow are documented below and in [ADR 002](docs/adr/002-signature-authorization.md).
+
+## Quick start
 
 ### Prerequisites
 
-- **Nim 2.2.2+**: Download from [nim-lang.org](https://nim-lang.org/install.html)
-- **Git**: For cloning the repository
+- **Nim 2.2.2+** (CI uses 2.2.4): [nim-lang.org](https://nim-lang.org/install.html)
+- **Git**
 
 ### Installation
 
 ```shell
-git clone https://github.com/dkrizhanovskyi/nim-blockchain-node.git 
+git clone https://github.com/dkrizhanovskyi/nim-blockchain-node.git
 cd nim-blockchain-node
-nimble install
+nimble install -y
 ```
 
-### Build Options
+### Build
 
 ```shell
-# Build the node daemon
-nimble build
+nimble build          # node executable
+nimble cli            # CLI executable
+nimble buildAll       # both
+```
 
-# Build the CLI tool
-nimble cli
+`main` initializes an in-memory node, logs to stderr, and **exits**. It is not a long-running server.
 
-# Build everything
+```shell
 nimble buildAll
+./main --help
+./blockchain_cli --help
 ```
 
-### Running the Node
+On Windows the executables are `main.exe` and `blockchain_cli.exe` (often under `src/` depending on the Nim version).
 
-```shell
-# Run the blockchain node daemon
-.\main.exe
+## Signature scheme
 
-# Or use the interactive CLI
-.\blockchain_cli.exe --help
-```
+Authorization uses one API, `signature_verification.verifySignature`. The VM and the mempool both call `authorizeTransaction`.
 
-## 🖥️ Command Line Interface
+`demo-sha256` is a teaching placeholder:
 
-The project includes a comprehensive CLI for easy blockchain interaction:
+- `publicKey = hex(SHA-256(privateKeyBytes))`
+- `signature = hex(SHA-256(publicKeyBytes || messageBytes))`
+- The message is `id|sender|receiver|amount|fee|nonce`
+- The sender must equal the first 8 hex characters of the public key
 
-```shell
-# Start and check node status
-.\blockchain_cli.exe node start
-.\blockchain_cli.exe node status
+Anyone who knows the public key can forge a signature. Unsigned transactions and signatures that do not match this formula are rejected and do not move balances. This is not Ed25519.
 
-# Create accounts and transfer funds
-.\blockchain_cli.exe account create
-.\blockchain_cli.exe account transfer genesis [address] 1000
+## Keystore
 
-# View blockchain data
-.\blockchain_cli.exe block latest
-.\blockchain_cli.exe transaction list
-```
+`account create` writes the private key to `<data-dir>/keystore/<address>.key` and does not print it or put `private_key` in JSON output.
 
-See [CLI_README.md](CLI_README.md) for complete CLI documentation.
+The file is plaintext UTF-8 (`version`, `scheme=demo-sha256`, `address`, `public_key`, `private_key`, `warning`). It is not encrypted. On POSIX the file is owner read/write (mode 0600). On Windows, Nim cannot set an owner-only ACL through `setFilePermissions`; other local users may be able to read the file.
 
-## 🎯 Demo
+The in-memory `genesis` account has a balance and no keystore, so it cannot authorize a transfer.
 
-Run the interactive demo to see the CLI in action:
+## Configuration
 
-```powershell
-# Windows PowerShell
-.\demo_cli.ps1
+Precedence is **CLI flags > environment variables > defaults**.
 
-# Linux/macOS
-./demo_cli.sh
-```
+| Setting | CLI | Environment | Default |
+| --- | --- | --- | --- |
+| Data directory | `--data-dir` / `-d` | `NIM_NODE_DATA_DIR` | `data` |
+| Verbose logging | `--verbose` / `-v` | `NIM_NODE_VERBOSE` | off |
 
-## 🧪 Testing
+`--verbose` is a presence flag. If you omit it, `NIM_NODE_VERBOSE` (`1`, `true`, `yes`, `on`, or the false counterparts `0`, `false`, `no`, `off`) still applies. Options belong before the command. Verbose logging is debug on stderr; other diagnostics are info, warn, or error. Command results and help stay on stdout.
 
-Run tests to ensure reliability:
+## Testing and CI
 
 ```shell
 nimble test
 ```
 
-## 📚 Documentation
+GitHub Actions (`.github/workflows/ci.yml`) runs `nimble buildAll` and `nimble test` on push and pull requests, with Nim 2.2.4. Compiler warnings are not treated as errors, because this tree still has warnings outside the authorization work.
 
-Explore more detailed documentation in the `docs` folder:
+`nimcrypto` is a direct dependency pinned at `0.6.2` in `nim_blockchain_node.nimble`. Its own transitive dependencies are not redeclared here.
+
+## Documentation
 
 - [Architecture](docs/architecture.md)
-- [Setup Guide](docs/setup_guide.md)
-- [Getting Started](docs/getting_started.md)
-- [Contributing](docs/contributing.md)
+- [Overview](docs/overview.md)
+- [ADR 001: canonical types](docs/adr/001-canonical-domain-types.md)
+- [ADR 002: signature authorization](docs/adr/002-signature-authorization.md)
+- [CLI notes](CLI_README.md)
+- [Setup](docs/setup_guide.md)
 
-## 🔐 Security
+## Security
 
-Follow security best practices outlined in the documentation and regularly update cryptographic dependencies.
+Read [security-report.md](security-report.md). The demo signature and plaintext keystore are known limits, not temporary wording. Zero-knowledge proofs are still the `zk_proof_` string prefix.
 
-## 🙌 Contributing
+## Contributing
 
-We welcome contributions! See [Contributing Guide](docs/contributing.md) for more details.
+See [Contributing Guide](docs/contributing.md).

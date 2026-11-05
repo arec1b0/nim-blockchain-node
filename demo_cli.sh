@@ -37,19 +37,19 @@ echo "5️⃣ Checking genesis account balance..."
 ./blockchain_cli account balance genesis
 
 echo ""
-echo "6️⃣ Transferring 1000 tokens from genesis to Alice..."
+echo "6. Genesis has no keystore, so this transfer is rejected..."
 ./blockchain_cli account transfer genesis $ALICE_ADDR 1000 10
 
 echo ""
-echo "7️⃣ Checking Alice's balance..."
+echo "7. Alice's balance is still zero (no faucet in this prototype)..."
 ./blockchain_cli account balance $ALICE_ADDR
 
 echo ""
-echo "8️⃣ Alice sends 200 tokens to Bob..."
+echo "8. A signed transfer with no balance is rejected..."
 ./blockchain_cli account transfer $ALICE_ADDR $BOB_ADDR 200 5
 
 echo ""
-echo "9️⃣ Checking final balances..."
+echo "9. Balances (Bob is unchanged)..."
 echo "Alice:"
 ./blockchain_cli account balance $ALICE_ADDR
 echo "Bob:"
