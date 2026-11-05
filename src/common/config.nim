@@ -7,8 +7,15 @@ import std/[os, strutils, parseopt]
 
 const
   DefaultDataDir* = "data"
+  ## Account state stays in the process. Not a directory path.
+  MemoryDataDir* = ":memory:"
   EnvDataDir* = "NIM_NODE_DATA_DIR"
   EnvVerbose* = "NIM_NODE_VERBOSE"
+
+proc isMemoryDataDir*(dataDir: string): bool =
+  ## True for the explicit memory-only sentinel.
+  ## An omitted `--data-dir` still resolves to `DefaultDataDir`.
+  dataDir == MemoryDataDir
 
 type
   NodeConfig* = object

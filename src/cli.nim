@@ -6,7 +6,7 @@
 import std/[strutils, os, json, times, logging, options]
 import common/[types, result, config, logsetup]
 import core_engine/[consensus, state_management, vm]
-import storage/[blockchain_db, state_db, index_db]
+import storage/[blockchain_db, state_db, index_db, account_store]
 import network/[mempool, p2p]
 import cryptography/[key_management, keystore, signature_verification]
 
@@ -22,10 +22,12 @@ type
     mempool*: Mempool
     network*: Network
     vm*: VM
+    accounts*: AccountStore
 
   CliInitError* = enum
     cliInitNone
     cliInitUnexpected
+    cliInitAccountStore
 
   CreatedAccount* = object
     address*: Address
@@ -45,8 +47,10 @@ type
     trInvalidSignature
     trInsufficientBalance
     trBadNonce
+    trEmptyReceiver
     trGasLimitExceeded
     trDebitFailed
+    trAccountStore
 
 var
   cliConfig* = NodeConfig(verbose: false, jsonOutput: false, dataDir: DefaultDataDir)
@@ -61,25 +65,52 @@ proc emitText(message: string) =
   warn(message)
 
 proc initializeBlockchainNode*(): Status[CliInitError] =
-  ## Initialize in-memory components. Does not start a long-running process.
+  ## Load account state from `cliConfig.dataDir`, or seed genesis when the store is new.
+  ## Does not start a long-running process. Blocks, the mempool, and peers stay in memory.
   try:
+    if not node.accounts.isNil:
+      discard node.accounts.closeAccountStore()
+    let prepared = prepareAccountLedger(cliConfig.dataDir)
+    if not prepared.ok:
+      error("account store initialization failed path=" & cliConfig.dataDir &
+        " reason=" & accountStoreFailure(prepared.error))
+      return errStatus(cliInitAccountStore)
+    node.accounts = prepared.value.store
+    node.accountState = prepared.value.state
     node.consensus = newConsensus()
-    node.accountState = newStateDB()
     node.globalState = newGlobalStateStore()
     node.blockchainDB = newBlockchainDB()
     node.indexDB = newIndexDB()
     node.mempool = newMempool()
     node.network = newNetwork()
-    # Fund genesis before copying the value-type ledger into the VM.
-    node.accountState.setBalance("genesis", 1000000)
     node.vm = newVM(node.accountState, 1000000)
     discard node.consensus.addValidator(1, 10000)
-    debug("in-memory node initialized")
+    debug("node initialized dataDir=" & cliConfig.dataDir)
     info("blockchain node initialized")
     okStatus(CliInitError)
   except CatchableError as e:
     error("blockchain node initialization failed: " & $e.name)
     errStatus(cliInitUnexpected)
+
+proc persistAccountState*(): Status[AccountStoreError] =
+  ## Writes `vm.state` through the open account store.
+  ## On success, `accountState` matches that ledger. A failed save leaves the previous snapshot.
+  if node.accounts.isNil:
+    return errStatus(asIo)
+  let saved = node.accounts.saveAccounts(node.vm.state)
+  if saved.ok:
+    node.accountState = node.vm.state
+  else:
+    error("account store save failed path=" & cliConfig.dataDir &
+      " reason=" & accountStoreFailure(saved.error))
+  saved
+
+proc closeAccounts() =
+  if node.accounts.isNil:
+    return
+  let closed = node.accounts.closeAccountStore()
+  if not closed.ok:
+    error("account store close failed reason=" & accountStoreFailure(closed.error))
 
 proc printHelp() =
   echo """
@@ -93,6 +124,10 @@ OPTIONS:
     -v, --verbose     Debug logging on stderr. When omitted, NIM_NODE_VERBOSE is used.
     -j, --json        Output command results in JSON format
     -d, --data-dir    Data directory (default: data, or NIM_NODE_DATA_DIR)
+
+Account balances and nonces are stored in <data-dir>/accounts.json.
+Pass --data-dir=:memory: to keep those balances in process memory only.
+Blocks, the mempool, and peers are not saved. :memory: does not store keys.
 
 Precedence: CLI flags, then NIM_NODE_DATA_DIR / NIM_NODE_VERBOSE, then defaults.
 --verbose is a presence flag and does not turn an environment setting off.
@@ -140,8 +175,10 @@ COMMANDS:
     list              List all accounts
     transfer FROM TO AMOUNT [FEE]  Transfer funds between accounts
 
-The sender must have a keystore file in the data directory. The genesis
-account is funded in memory and has no signing key, so it cannot transfer.
+The sender must have a keystore file in the data directory. A new account
+store funds genesis with 1000000. An existing accounts.json is loaded and
+genesis is not reset. genesis has no signing key, so it cannot transfer.
+:memory: keeps balances for this process only and cannot store keys.
 """
 
 proc printTransactionHelp() =
@@ -204,16 +241,39 @@ proc createdAccountJson*(account: CreatedAccount, balance: Balance): JsonNode =
     "warning": "plaintext educational keystore; demo-sha256 is not unforgeable"
   }
 
+proc rollbackNewAccount(address: Address) =
+  ## Drops an account this call added when a later step fails.
+  ## Does not log key material.
+  discard node.vm.state.deleteAccount(address)
+  let rolled = persistAccountState()
+  if not rolled.ok:
+    error("account rollback failed address=" & address)
+
 proc createAccount*(): Result[CreatedAccount, KeystoreError] =
   ## Creates a key, stores it in the keystore, and prints only public data.
+  ## The snapshot is saved before the key file. A failed snapshot does not
+  ## leave a private key on disk.
+  if isMemoryDataDir(cliConfig.dataDir):
+    emitText("Account creation failed: :memory: does not store keys. Pass a filesystem --data-dir.")
+    return errResult(CreatedAccount, ksUnsafePath)
   try:
     let keyPair = generateKeyPair()
     let address = addressFromPublicKey(keyPair.publicKey)
+    let createdNew = not node.vm.state.hasAccount(address)
+    if createdNew:
+      node.vm.state.setBalance(address, 0)
+    let persisted = persistAccountState()
+    if not persisted.ok:
+      if createdNew:
+        discard node.vm.state.deleteAccount(address)
+      emitText("Account creation failed: account state was not saved.")
+      return errResult(CreatedAccount, ksIo)
     let saved = saveKeystore(cliConfig.dataDir, address, keyPair.publicKey, keyPair.privateKey)
     if not saved.ok:
+      if createdNew:
+        rollbackNewAccount(address)
       emitText("Account creation failed: the keystore was not written.")
       return errResult(CreatedAccount, saved.error)
-    node.vm.state.setBalance(address, 0)
     let created = CreatedAccount(
       address: address,
       publicKey: keyPair.publicKey,
@@ -281,10 +341,14 @@ proc describeTransfer(err: TransferError): string =
     "Transfer failed: insufficient balance."
   of trBadNonce:
     "Transfer failed: the nonce does not match the account sequence."
+  of trEmptyReceiver:
+    "Transfer failed: the recipient address is empty."
   of trGasLimitExceeded:
     "Transfer failed: gas limit exceeded."
   of trDebitFailed:
     "Transfer failed: the sender balance could not be debited."
+  of trAccountStore:
+    "Transfer failed: account state could not be saved."
 
 proc fromKeystore(err: KeystoreError): TransferError =
   case err
@@ -303,12 +367,19 @@ proc fromTx(err: TxError): TransferError =
   of txInvalidSignature: trInvalidSignature
   of txInsufficientBalance: trInsufficientBalance
   of txBadNonce: trBadNonce
+  of txEmptyReceiver: trEmptyReceiver
   of txGasLimitExceeded: trGasLimitExceeded
 
 proc transferFunds(fromAddr, toAddr: string, amount: int, fee: int = 10): Status[TransferError] =
   ## Signs with the sender's keystore key, then applies the VM and mempool gates.
   ## The VM runs first (existing CLI order). Both gates call authorizeTransaction.
   debug("transfer requested from=" & fromAddr & " to=" & toAddr)
+  if isMemoryDataDir(cliConfig.dataDir):
+    emitText("Transfer failed: :memory: does not store keys. Pass a filesystem --data-dir.")
+    return errStatus(trKeystoreUnsafePath)
+  if toAddr.len == 0:
+    emitText(describeTransfer(trEmptyReceiver))
+    return errStatus(trEmptyReceiver)
   if amount <= 0:
     emitText(describeTransfer(trZeroAmount))
     return errStatus(trZeroAmount)
@@ -344,6 +415,10 @@ proc transferFunds(fromAddr, toAddr: string, amount: int, fee: int = 10): Status
   let admitted = node.mempool.addTransaction(tx)
   if not admitted.ok:
     warn("transaction applied but mempool rejected it id=" & shortId(tx.id))
+  let persisted = persistAccountState()
+  if not persisted.ok:
+    emitText(describeTransfer(trAccountStore))
+    return errStatus(trAccountStore)
   if cliConfig.jsonOutput:
     let payload = %*{
       "success": true,
@@ -441,6 +516,7 @@ proc processCommand(args: seq[string]): bool =
         return false
     of "stop":
       info("stop requested")
+      closeAccounts()
       echo "Stop requested. This prototype is not a long-running process."
     else:
       emitText("Unknown node command: " & args[1])
@@ -558,15 +634,21 @@ proc runCLI*() =
   if overrides.helpRequested:
     printHelp()
     quit(0)
-  try:
-    createDir(cliConfig.dataDir)
-  except CatchableError as e:
-    error("cannot create data directory: " & $e.name)
-    quit(1)
+  if not isMemoryDataDir(cliConfig.dataDir):
+    try:
+      createDir(cliConfig.dataDir)
+    except CatchableError as e:
+      error("cannot create data directory: " & $e.name)
+      quit(1)
+  else:
+    debug("memory-only account store")
   debug("data directory=" & cliConfig.dataDir)
   if not initializeBlockchainNode().ok:
+    closeAccounts()
     quit(1)
-  if not processCommand(commandArguments()):
+  let commandOk = processCommand(commandArguments())
+  closeAccounts()
+  if not commandOk:
     quit(1)
 
 when isMainModule:

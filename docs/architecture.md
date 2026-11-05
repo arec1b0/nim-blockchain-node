@@ -2,9 +2,9 @@
 
 ## 🔍 Introduction
 
-This document describes the module layout of an **educational prototype**. The node is not production-ready: signatures are a SHA-256 teaching scheme, zero-knowledge proofs are string placeholders, and storage and networking are in memory.
+This document describes the module layout of an **educational prototype**. The node is not production-ready: signatures are a SHA-256 teaching scheme, zero-knowledge proofs are string placeholders, and networking is simulated. Account balances and nonces can be reloaded from a JSON snapshot. Blocks, the transaction index, the mempool, and peers are still in memory.
 
-It is not a claim of production consensus, cryptography, or persistence.
+It is not a claim of production consensus, cryptography, networking, or durable storage.
 
 ## 🧱 Architectural Layers
 The architecture is composed of distinct modules so each layer has a readable boundary. Several modules are placeholders; those limits are stated in the sections below.
@@ -15,7 +15,7 @@ Canonical shared types for cross-layer use:
 
 - `Address`, `Balance`, `Nonce`, `TransactionId`, `PublicKey`, `PrivateKey`, `Signature`, `Transaction`
 
-This module is a leaf dependency and must not import higher-level layers. The VM and mempool both use the same `Transaction` type, including `publicKey` and `signature`. See [ADR 001](adr/001-canonical-domain-types.md) and [ADR 002](adr/002-signature-authorization.md).
+This module is a leaf dependency and must not import higher-level layers. The VM and mempool both use the same `Transaction` type, including `publicKey` and `signature`. See [ADR 001](adr/001-canonical-domain-types.md), [ADR 002](adr/002-signature-authorization.md), and [ADR 003](adr/003-account-store.md).
 
 ### 1. Core Engine Layer
 
@@ -29,8 +29,9 @@ This module is a leaf dependency and must not import higher-level layers. The VM
 - Does not execute general smart contracts.
 
 #### **State Management Module**
-- In-memory account balances and nonces.
-- No concurrency control and no state pruning. `StateDB` is a value type.
+- Account balances and nonces in a `StateDB` value. The VM mutates its own copy.
+- `AccountStore` snapshots that value. See [ADR 003](adr/003-account-store.md).
+- No concurrency control and no state pruning.
 
 ### 2. Cryptography Layer
 
@@ -61,6 +62,7 @@ This module is a leaf dependency and must not import higher-level layers. The VM
 
 #### **Block Propagation Module**
 - Placeholder that returns success without sending bytes to peers.
+- `propagateBlock` does not take a `Network`. `peersReached` is fixed at 5.
 - Logs the block id through `std/logging`. No latency or bandwidth optimization.
 
 ### 4. Storage Layer
@@ -75,11 +77,18 @@ This module is a leaf dependency and must not import higher-level layers. The VM
 - In-memory key-value map, separate from the account-ledger `StateDB`.
 - Not a historical state database.
 
+#### **Account Store**
+- Facade in `storage/account_store.nim`. `openAccountStore` selects the backend from `dataDir`.
+- `MemoryAccountStore` keeps one `StateDB` in the process. `--data-dir=:memory:` selects it and does not create a directory.
+- `FileAccountStore` writes `<dataDir>/accounts.json` (format `nim-node-accounts`, version 1) by flushing a temp file and replacing the destination in the same directory.
+- A checksum detects accidental edits. A failed load leaves the existing file in place. This is not a database and not crash-proof beyond that replace.
+- The default data directory remains `data`. An omitted `--data-dir` is not memory-only, because the keystore already uses `data`.
+
 ## 📐 Component Interactions
 - **Transactions** use one canonical `Transaction` type shared by mempool and VM, including `publicKey` and `signature`.
 - **Authorization:** mempool admission and `validateTransaction` both call `authorizeTransaction`. The CLI still applies the VM first and then admits the same transaction to the mempool. A long-running block producer is not implemented; `main` initializes and exits.
-- **Account ledger** (`StateDB` in state management) tracks balances and nonces; **GlobalStateStore** holds unrelated KV state. `StateDB` is a value type. The CLI reads balances from `vm.state` after execution.
-- **Keys** are written only to `<dataDir>/keystore/<address>.key` (plaintext). See ADR 002 for the format and the Windows permission limit.
+- **Account ledger** (`StateDB` in state management) tracks balances and nonces. The VM keeps a value copy. After a successful account create or transfer, the CLI saves `vm.state` through `AccountStore`. **GlobalStateStore** holds unrelated KV state and is still unused by command behavior. `StateDB` is a value type. The CLI reads balances from `vm.state` after execution.
+- **Keys** are written only to `<dataDir>/keystore/<address>.key` (plaintext). `:memory:` is rejected before a keystore directory is created. See ADR 002 for the format and the Windows permission limit. See ADR 003 for the account snapshot.
 - **Configuration** is a `NodeConfig` value: CLI flags, then `NIM_NODE_DATA_DIR` and `NIM_NODE_VERBOSE`, then defaults. Logging is configured from `main` and `runCLI`.
 - **Consensus** in this tree is validator bookkeeping, not a Byzantine protocol implementation.
 - A single composition root (`src/node.nim`) is still only planned. `main.nim` and `cli.nim` wire components separately (see ADR 001).
@@ -97,8 +106,11 @@ This module is a leaf dependency and must not import higher-level layers. The VM
 ## 🚀 Future Enhancements
 - Replace `demo-sha256` with an audited Ed25519 or secp256k1 implementation.
 - Replace the zero-knowledge placeholder.
-- Persist blocks and state, and encrypt or otherwise protect the keystore.
-- Run a long-lived process. `main` currently exits after initialization on purpose.
+- Persist blocks and the transaction index. Account balances already have a versioned JSON snapshot, which is not a database engine.
+- Encrypt or otherwise protect the keystore.
+- Pass a network dependency into `propagateBlock`, enforce `maxPeers`, and replace the fixed `peersReached` placeholder.
+- Split `cli.nim` into a runtime module, command rendering, and a thin `runCLI`. See ADR 003.
+- Run a long-lived process. `main` and the CLI currently load, run, and exit.
 
 ---
 

@@ -12,6 +12,7 @@ import std/[os, json, options, strutils]
 suite "CLI Tests":
 
   setup:
+    cliConfig.dataDir = MemoryDataDir
     discard initializeBlockchainNode()
 
   test "Node initialization":
@@ -86,6 +87,33 @@ suite "CLI Tests":
       cliConfig.jsonOutput = false
       if dirExists(dir):
         removeDir(dir)
+
+  test "createAccount writes no key file when the snapshot cannot be saved":
+    let dir = getTempDir() / "nimnode-cli-orphan"
+    if dirExists(dir):
+      removeDir(dir)
+    if fileExists(dir):
+      removeFile(dir)
+    createDir(dir)
+    let previousDir = cliConfig.dataDir
+    let previousJson = cliConfig.jsonOutput
+    cliConfig.dataDir = dir
+    cliConfig.jsonOutput = false
+    try:
+      check initializeBlockchainNode().ok
+      removeDir(dir)
+      writeFile(dir, "not-a-directory")
+      let created = createAccount()
+      check not created.ok
+      check fileExists(dir)
+      check not dirExists(dir)
+    finally:
+      cliConfig.dataDir = previousDir
+      cliConfig.jsonOutput = previousJson
+      if dirExists(dir):
+        removeDir(dir)
+      elif fileExists(dir):
+        removeFile(dir)
 
   test "config precedence is CLI over environment over defaults":
     let defaults = resolveConfigFrom(CliOverrides(), "", "")
