@@ -17,9 +17,11 @@ nimble install
 ### Build & Run
 
 ```shell
-nimble build          # Compiles to main.exe
+nimble buildAll       # Compiles main.exe and blockchain_cli.exe with release optimizations
+nimble build          # Compiles main.exe
+./blockchain_cli.exe  # Run the blockchain CLI
 ./main.exe            # Run the blockchain node
-nimble test           # Run all tests
+nimble test           # Run all unit and integration test suites
 ```
 
 ## 📁 Project Structure Overview
@@ -27,29 +29,39 @@ nimble test           # Run all tests
 ```
 nim-blockchain-node/
 ├── src/                    # Source code organized by architectural layers
+│   ├── common/             # Canonical domain types, config, results, logsetup
 │   ├── core_engine/        # Consensus, state management, VM
-│   ├── cryptography/       # Key management, signatures, ZK proofs  
-│   ├── network/           # P2P, mempool, block propagation
-│   ├── storage/           # Database modules
-│   └── main.nim           # Entry point
-├── tests/                 # Unit and integration tests
-├── docs/                  # Architecture and setup documentation
-└── nim_blockchain_node.nimble  # Build configuration
+│   ├── cryptography/       # Key management, keystore, signature verification, ZK proofs  
+│   ├── network/            # P2P, mempool, block propagation
+│   ├── storage/            # BlockchainStore, IndexStore, AccountStore facades & backends
+│   ├── cli/                # Decomposed CLI: parser, handlers, service context
+│   ├── node.nim            # Shared composition root (BlockchainNode)
+│   ├── cli.nim             # CLI facade & legacy test adapters
+│   ├── blockchain_cli.nim  # CLI executable entry point
+│   └── main.nim            # Node executable entry point
+├── tests/                  # Unit and integration test suites
+│   ├── unit_tests/         # Core engine, crypto, network, storage, and CLI tests
+│   └── integration_tests/  # End-to-end node and lifecycle integration tests
+├── docs/                   # Architecture, overview, setup docs, and ADRs (001-008)
+└── nim_blockchain_node.nimble  # Build configuration and task runners
 ```
 
 ## ⚙️ Build Configuration
 
 The [nim_blockchain_node.nimble](mdc:nim_blockchain_node.nimble) file defines:
 
-- **Build task**: Compiles with release optimizations
-- **Test task**: Runs all test suites sequentially
-- **Dependencies**: Currently minimal, designed for core Nim capabilities
+- **buildAll task**: Compiles both `main.nim` and `blockchain_cli.nim` with release optimizations
+- **build task**: Compiles `main.nim` with release optimizations
+- **test task**: Compiles and executes all unit and integration test suites sequentially
+- **Dependencies**: Pinned `nimcrypto == 0.6.2` for cryptographic primitives
 
 ## 📚 Documentation Resources
 
 Essential reading for understanding the project:
 
 - [docs/architecture.md](mdc:docs/architecture.md): Detailed system architecture
+- [docs/overview.md](mdc:docs/overview.md): System overview and design rationale
+- [docs/adr/](mdc:docs/adr/): Architecture Decision Records (ADR 001 - 008)
 - [docs/getting_started.md](mdc:docs/getting_started.md): Quick start guide
 - [docs/setup_guide.md](mdc:docs/setup_guide.md): Detailed Windows 11 setup
 - [docs/contributing.md](mdc:docs/contributing.md): Development guidelines
@@ -59,7 +71,7 @@ Essential reading for understanding the project:
 
 ### Prerequisites
 
-- **Nim 2.2.2+**: Core language requirement
+- **Nim 2.2.2+**: Core language requirement (tested on Nim 2.4.0)
 - **Nimble**: Package manager (bundled with Nim)
 - **Git**: Version control
 - **PowerShell 7**: Recommended shell for Windows
@@ -67,5 +79,5 @@ Essential reading for understanding the project:
 ### IDE Setup
 
 - **VSCode**: Recommended with Nim extension
-- **File watching**: Use `nimble build` for incremental compilation
+- **File watching**: Use `nimble buildAll` for full compilation
 - **Debugging**: Compile with debug flags for development builds

@@ -18,21 +18,30 @@ The node follows a modular, layered architecture, clearly divided into core comp
 - **Zero-Knowledge Proofs**: The string prefix `zk_proof_`. Not a proof system.
 
 ### 3. Network Layer
-- **P2P Communication**: In-memory peer table. No transport and no authentication.
+- **P2P Communication**: In-memory peer table (`Network` / `SimulatedNetwork`). Enforces `maxPeers` on `addPeer` with typed errors. See [ADR 004](adr/004-composition-root-and-network-boundary.md).
 - **Mempool Management**: Fee ordering plus the same `authorizeTransaction` check the VM uses. Balance and nonce are not checked here.
-- **Block Propagation**: Placeholder that records a successful status and a fixed `peersReached` of 5. It does not take a `Network` and does not send bytes. Diagnostics go through `std/logging`.
+- **Block Propagation**: Simulated broadcast using an injected `Network` or `Broadcaster` dependency. `peersReached` reflects the count of currently connected peers, with deterministic latency.
 
 ### 4. Storage Layer
-Blocks, the transaction index, and the global key-value map are in-memory. Account balances and nonces are the exception:
-- **AccountStore**: Loads and saves the account ledger. `:memory:` keeps it in the process. Any other data directory uses `<dataDir>/accounts.json` (version 1). A failed load does not overwrite the file. See [ADR 003](adr/003-account-store.md).
-- **BlockchainDB**: In-memory blocks by height. Not reloaded after a restart.
-- **IndexDB**: In-memory transaction id to height and position. Not reloaded after a restart.
-- **GlobalStateStore** (`state_db.nim`): In-memory key-value map (not the account ledger, and not a versioned database). `main` does not construct it.
+Blocks, the transaction index, and the global key-value map are in-memory. Account balances and nonces can be persisted:
+- **BlockchainStore** (`blockchain_store.nim`): Abstract facade and `MemoryBlockchainStore` implementation using canonical domain `Block` objects. See [ADR 007](adr/007-storage-facades.md).
+- **IndexStore** (`index_store.nim`): Abstract facade and `MemoryIndexStore` implementation for transaction location indexing. See [ADR 007](adr/007-storage-facades.md).
+- **AccountStore** (`account_store.nim`): Loads and saves the account ledger. `:memory:` keeps it in the process. Any other data directory uses `<dataDir>/accounts.json` (version 1). A failed load does not overwrite the file. See [ADR 003](adr/003-account-store.md).
+- **GlobalStateStore** (`state_db.nim`): In-memory key-value map (not the account ledger, and not a versioned database).
+
+### 5. Node Composition Root (`src/node.nim`)
+- Shared composition factory `newBlockchainNode(cfg: NodeConfig)` constructs `BlockchainNode`.
+- Unifies defaults: gas limit (`1,000,000`), mempool capacity (`5,000`), max peers (`50`), active validators (`2`).
+- Both `main.nim` and `cli.nim` compose through this root. See [ADR 004](adr/004-composition-root-and-network-boundary.md).
+- Implements `submitAndExecuteTransaction` enforcing the 5-stage lifecycle. See [ADR 005](adr/005-transaction-lifecycle-alignment.md).
+
+### 6. CLI Subsystem (`src/cli/`, `src/cli.nim`)
+- Decomposed into `cli_parser.nim`, `cli_service.nim`, `cli_handlers.nim`, and facade `cli.nim`.
+- Pure parsing, isolated `CliServiceContext`, and clean presentation formatting without business logic coupling. See [ADR 008](adr/008-cli-decomposition.md).
 
 ### Common Domain Types
-- `src/common/types.nim`: Canonical `Address`, `Balance`, `Nonce`, `TransactionId`, `PublicKey`, `PrivateKey`, `Signature`, and `Transaction` (with `publicKey` and `signature`).
-- Account ledger state remains `StateDB` in `state_management.nim`. Persistence is the `AccountStore` snapshot, not a second account type.
-- See [ADR 001](adr/001-canonical-domain-types.md) and [ADR 002](adr/002-signature-authorization.md).
+- `src/common/types.nim`: Canonical `Address`, `Balance`, `Nonce`, `TransactionId`, `PublicKey`, `PrivateKey`, `Signature`, `Transaction`, `BlockHeight`, `BlockHash`, `BlockData`, `BlockId`, `Block`, and constructor `newBlock`.
+- See [ADR 001](adr/001-canonical-domain-types.md) and [ADR 006](adr/006-consolidated-block-domain-types.md).
 
 ## 🔒 Cryptographic Considerations
 - One verification procedure serves the VM and the mempool. The scheme is `demo-sha256`, a SHA-256 teaching placeholder, not Ed25519 or secp256k1, and it is not unforgeable.
@@ -41,8 +50,8 @@ Blocks, the transaction index, and the global key-value map are in-memory. Accou
 
 ## 🚧 Module Breakdown
 ### Common
-- `common/types.nim`: Canonical domain types (`Transaction`, including signature fields).
-- `common/config.nim`: `NodeConfig`. Precedence is CLI flags, then `NIM_NODE_DATA_DIR` / `NIM_NODE_VERBOSE`, then defaults.
+- `common/types.nim`: Canonical domain types (`Transaction`, `Block`, etc.).
+- `common/config.nim`: `NodeConfig`. Precedence is CLI flags, then `NIM_NODE_DATA_DIR` / `NIM_NODE_VERBOSE`, then defaults. Centralized defaults for gas, validators, mempool, and peers.
 - `common/result.nim`: `Status` and `Result` for validation, admission, transfer, and init.
 - `common/logsetup.nim`: one-time `std/logging` setup called from `main` and `runCLI`.
 
@@ -58,37 +67,43 @@ Blocks, the transaction index, and the global key-value map are in-memory. Accou
 - `zk_proofs.nim`: String-prefix placeholder. Not a real proof system.
 
 ### Network Communication
-- `p2p.nim`: In-memory peer table. No sockets. `maxPeers` is stored and not enforced on `addPeer`.
+- `p2p.nim`: In-memory peer table. `maxPeers` is strictly enforced on `addPeer`.
 - `mempool.nim`: Pending transactions. Admission verifies the demo signature, then enforces id uniqueness and capacity.
-- `block_propagation.nim`: Placeholder broadcast. It does not use `Network` and reports `peersReached: 5`.
+- `block_propagation.nim`: Block propagation taking an injected `Network`/`Broadcaster` dependency.
 
 ### Persistent Storage
+- `blockchain_store.nim`: `BlockchainStore` facade and `MemoryBlockchainStore` adapter.
+- `index_store.nim`: `IndexStore` facade and `MemoryIndexStore` adapter.
 - `account_store.nim`: Facade. `openAccountStore` binds memory or the JSON snapshot.
 - `memory_account_store.nim`: In-process `StateDB`. Not durable.
 - `file_account_store.nim`: Versioned `accounts.json` snapshot. Not a database engine.
-- `blockchain_db.nim`: In-memory block map. Lost on exit.
-- `index_db.nim`: In-memory transaction index. Lost on exit.
+- `blockchain_db.nim`: In-memory block map and `StoredBlock` DTO.
+- `index_db.nim`: In-memory transaction index and `TransactionLocation` DTO.
 - `state_db.nim`: In-memory `GlobalStateStore`. Not the account ledger.
 
+### Composition Root & CLI
+- `node.nim`: Centralized composition of `BlockchainNode`, lifecycle methods, and unified defaults.
+- `cli/cli_parser.nim`, `cli/cli_service.nim`, `cli/cli_handlers.nim`, `cli.nim`: Decomposed CLI architecture.
+
 ## 🚀 Node Initialization Sequence (main.nim / cli.nim)
-Today, `main.nim` and `cli.nim` each wire components independently (defaults still diverge). A shared composition root is planned; see ADR 001.
-- Both entry points resolve `NodeConfig`, call `configureLogging`, open the account store, and exit. There is no server loop.
+Both `main.nim` and `cli.nim` now construct the node through `newBlockchainNode(cfg)` in `src/node.nim`.
+- Both entry points resolve `NodeConfig`, configure logging, initialize the shared node, execute their entry point task, and close the node.
 - A missing `accounts.json` seeds genesis with balance 1000000 and saves that snapshot. An existing snapshot is loaded and genesis is not reset. `:memory:` seeds genesis in the process only.
-- `main` adds one signed sample transaction to the mempool. The sample private key is not written or logged. That transaction does not change the account snapshot.
-- The CLI copies the loaded ledger into the VM. Later balances are read from `vm.state`. Successful account creation and transfers save `vm.state` before reporting success.
-- `GlobalStateStore` remains a separate in-memory KV map. The CLI still constructs it. `main` does not.
+- `main` adds one signed sample transaction to the mempool, creates and propagates the genesis block through the node's network, indexes it, and exits.
+- The CLI passes commands through the shared node, executing transactions through the canonical 5-stage lifecycle (`submit -> mempool validation -> block inclusion -> VM execution -> storage/index update`), and persists state after mutating operations.
 
 ## 🔒 Security and Cryptographic Considerations
 - Sign and verify now share `demo-sha256`. That stops empty and non-matching signatures from moving balances. It does not stop someone who knows the public key from forging one.
 - Logging is `std/logging` with `--verbose` mapped to debug. Logs must not contain private keys or signatures.
-- Initialization and the transfer path return `Status` / `Result` instead of a bare bool.
+- Initialization, peer registration, and the transfer path return `Status` / `Result` instead of bare booleans.
 
 ## 🚧 Potential Areas for Improvement
 - Replace `demo-sha256` with Ed25519 or secp256k1.
 - Replace the zero-knowledge placeholder.
-- Persist blocks and the transaction index. The account snapshot is version 1 JSON, not a database.
-- Protect the keystore.
-- Add a real network and a long-running process. `propagateBlock` is still a placeholder.
+- Implement pluggable durable disk storage backends (e.g. SQLite, LMDB, append-only logs) behind `BlockchainStore` and `IndexStore`.
+- Encrypt or otherwise protect the keystore.
+- Continuous multi-transaction block production loop and mining timers.
+- Live BFT consensus protocol and finality checkpoints.
 
 ---
 
