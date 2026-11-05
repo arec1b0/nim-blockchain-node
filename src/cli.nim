@@ -241,23 +241,39 @@ proc createdAccountJson*(account: CreatedAccount, balance: Balance): JsonNode =
     "warning": "plaintext educational keystore; demo-sha256 is not unforgeable"
   }
 
+proc rollbackNewAccount(address: Address) =
+  ## Drops an account this call added when a later step fails.
+  ## Does not log key material.
+  discard node.vm.state.deleteAccount(address)
+  let rolled = persistAccountState()
+  if not rolled.ok:
+    error("account rollback failed address=" & address)
+
 proc createAccount*(): Result[CreatedAccount, KeystoreError] =
   ## Creates a key, stores it in the keystore, and prints only public data.
+  ## The snapshot is saved before the key file. A failed snapshot does not
+  ## leave a private key on disk.
   if isMemoryDataDir(cliConfig.dataDir):
     emitText("Account creation failed: :memory: does not store keys. Pass a filesystem --data-dir.")
     return errResult(CreatedAccount, ksUnsafePath)
   try:
     let keyPair = generateKeyPair()
     let address = addressFromPublicKey(keyPair.publicKey)
-    let saved = saveKeystore(cliConfig.dataDir, address, keyPair.publicKey, keyPair.privateKey)
-    if not saved.ok:
-      emitText("Account creation failed: the keystore was not written.")
-      return errResult(CreatedAccount, saved.error)
-    node.vm.state.setBalance(address, 0)
+    let createdNew = not node.vm.state.hasAccount(address)
+    if createdNew:
+      node.vm.state.setBalance(address, 0)
     let persisted = persistAccountState()
     if not persisted.ok:
+      if createdNew:
+        discard node.vm.state.deleteAccount(address)
       emitText("Account creation failed: account state was not saved.")
       return errResult(CreatedAccount, ksIo)
+    let saved = saveKeystore(cliConfig.dataDir, address, keyPair.publicKey, keyPair.privateKey)
+    if not saved.ok:
+      if createdNew:
+        rollbackNewAccount(address)
+      emitText("Account creation failed: the keystore was not written.")
+      return errResult(CreatedAccount, saved.error)
     let created = CreatedAccount(
       address: address,
       publicKey: keyPair.publicKey,

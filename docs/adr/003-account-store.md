@@ -44,7 +44,7 @@ The checksum detects accidental edits. It is not authentication and it is not a 
 
 Writes go to `accounts.json.tmp` in the same directory, are flushed, then replace the destination (POSIX `rename`, or Windows `MoveFileExW` with replace and write-through). On failure, only the temp file is removed. Startup does not read a leftover `.tmp`.
 
-A missing file is a new store: genesis is funded with balance `1000000` and the snapshot is saved. A present file is loaded as-is, including a valid empty account list. Empty, malformed, unknown-version, and checksum-mismatched files return an error and are not overwritten. A ledger that contains an empty address is not written, because the reader rejects that file. The VM also rejects an empty recipient before it moves balances.
+A missing file is a new store: genesis is funded with balance `1000000` and the snapshot is saved. A present file is loaded as-is, including a valid empty account list. Empty, malformed, unknown-version, and checksum-mismatched files return an error and are not overwritten. A ledger that contains an empty address is not written, because the reader rejects that file. The VM also rejects an empty recipient before it moves balances. `account create` saves that snapshot before it writes the key file, so a failed snapshot does not leave a private key behind.
 
 `close` does not write again. `save` already flushed.
 

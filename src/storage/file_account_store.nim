@@ -89,8 +89,13 @@ proc replaceSnapshot(source, dest: string): bool =
   ## Replaces `dest` with `source` in the same directory.
   ## Returns false on failure. Does not delete `dest`.
   when defined(windows):
+    # Keep the WideCStringObj values alive for the whole call. Passing
+    # newWideCString(...) straight in can destroy those buffers at the
+    # converter boundary, so MoveFileExW would see dangling UTF-16 pointers.
+    let sourceWide = newWideCString(source)
+    let destWide = newWideCString(dest)
     let flags = MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH
-    moveFileExW(newWideCString(source), newWideCString(dest), flags) != 0'i32
+    moveFileExW(sourceWide, destWide, flags) != 0'i32
   else:
     posixRename(cstring(source), cstring(dest)) == 0'i32
 
