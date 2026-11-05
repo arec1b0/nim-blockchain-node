@@ -87,9 +87,9 @@ Precedence is **CLI flags > environment variables > defaults**.
 nimble test
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs `nimble buildAll` and `nimble test` on push and pull requests, with Nim 2.2.4. Compiler warnings are not treated as errors, because this tree still has warnings outside the authorization work.
+GitHub Actions (`.github/workflows/ci.yml`) runs `nimble buildAll` and `nimble test` on push and pull request, with Nim 2.2.4. Compiler warnings are not treated as errors, because this tree still has warnings outside the authorization work.
 
-`nimcrypto` is a direct dependency pinned at `0.6.2` in `nim_blockchain_node.nimble`. Its own transitive dependencies are not redeclared here.
+`nimcrypto` is pinned at `== 0.6.2` in `nim_blockchain_node.nimble`. Transitive dependencies stay inside that package.
 
 ## Documentation
 

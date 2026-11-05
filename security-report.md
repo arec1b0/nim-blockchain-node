@@ -20,7 +20,7 @@ This security audit reveals **CRITICAL VULNERABILITIES** that make the current b
 
 ## Update (Path 2, November 2026)
 
-The authorization path now rejects unsigned and non-matching demo signatures in the VM and the mempool. CLI JSON no longer includes `private_key`; the key is written to a plaintext keystore. Diagnostics use `std/logging`. `nimcrypto` is pinned at 0.6.2, and CI runs `nimble buildAll` and `nimble test`.
+The authorization path now rejects unsigned and non-matching demo signatures in the VM and the mempool. CLI JSON no longer includes `private_key`; the key is written to a plaintext keystore. Diagnostics use `std/logging`. `nimcrypto` is pinned at `== 0.6.2`, and CI runs `nimble buildAll` and `nimble test`.
 
 That does **not** close the cryptographic findings below. The scheme is still `demo-sha256` (`signature = hex(SHA-256(publicKeyBytes || message))`), which anyone with the public key can forge. It is not Ed25519. The keystore is not encrypted. Zero-knowledge proofs are still string prefixes. Networking, consensus, and storage findings are unchanged.
 
