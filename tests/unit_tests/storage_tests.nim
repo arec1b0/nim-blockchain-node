@@ -4,7 +4,7 @@ import ../../src/storage/state_db
 import ../../src/storage/index_db
 import ../../src/storage/account_store
 import ../../src/core_engine/state_management
-import ../../src/common/config
+import ../../src/common/[config, types]
 import ../../src/cli
 import ../../src/cryptography/keystore
 import std/[options, os, strutils]
@@ -273,4 +273,25 @@ suite "Account Store Tests":
       check readFile(path) == "{"
     finally:
       cliConfig = previous
+      removeStoreDir(dir)
+
+  test "repeated saves leave a consistent reloadable snapshot":
+    let dir = tempStoreDir("repeated-save")
+    try:
+      let opened = openAccountStore(dir)
+      check opened.ok
+      var state = opened.value.store.loadAccounts().value
+      for i in 1..5:
+        state.setBalance("alice", Balance(i * 10))
+        discard state.incrementNonce("alice")
+        check opened.value.store.saveAccounts(state).ok
+        check not fileExists(dir / "accounts.json.tmp")
+      discard opened.value.store.closeAccountStore()
+      let again = openAccountStore(dir)
+      check again.ok
+      let loaded = again.value.store.loadAccounts().value
+      check loaded.getBalance("alice") == 50
+      check loaded.getNonce("alice") == 5
+      discard again.value.store.closeAccountStore()
+    finally:
       removeStoreDir(dir)

@@ -67,3 +67,30 @@ suite "Blockchain Node Integration Tests":
     check vm.state.getBalance("Bob") == 600    # 500 + 100
     check blockchainDB.getCurrentHeight() == 1
     check consensus.activeValidatorCount() == 2
+
+  test "Canonical Transaction is accepted by both mempool and VM":
+    ## One `common/types.Transaction` shape feeds both admission and execution.
+    let keys = generateKeyPair()
+    let sender = addressFromPublicKey(keys.publicKey)
+    var state = newStateDB()
+    state.setBalance(sender, 500)
+    state.setBalance("Carol", 0)
+    var vm = newVM(state, 100000)
+    let pool = newMempool(100)
+    let tx = signedTransaction(Transaction(
+      id: "canonical-tx",
+      receiver: "Carol",
+      amount: 40,
+      fee: 5,
+      nonce: 1,
+      size: 128
+    ), keys)
+    check authorizeTransaction(tx).ok
+    check pool.addTransaction(tx).ok
+    check pool.hasTransaction("canonical-tx")
+    check vm.validateTransaction(tx).ok
+    check vm.applyTransaction(tx).ok
+    check vm.state.getBalance(sender) == 455
+    check vm.state.getBalance("Carol") == 40
+    check pool.getTransaction("canonical-tx").fee == 5
+    check pool.getTransaction("canonical-tx").size == 128

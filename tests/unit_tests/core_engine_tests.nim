@@ -104,6 +104,31 @@ suite "Core Engine Tests":
     check vm.state.getBalance(sender) == 989
     check vm.gasUsed == 21000
 
+  test "VM - rejects a transaction signed by the wrong key":
+    var state = newStateDB()
+    let owner = generateKeyPair()
+    let other = generateKeyPair()
+    let sender = addressFromPublicKey(owner.publicKey)
+    state.setBalance(sender, 1000)
+    var vm = newVM(state, 100000)
+    var tx = Transaction(
+      id: "wrong-key",
+      sender: sender,
+      receiver: "Bob",
+      amount: 10,
+      fee: 1,
+      nonce: 1,
+      publicKey: owner.publicKey
+    )
+    # Signature was produced with a different private key than publicKey claims.
+    tx.signature = signMessage(other.privateKey, transactionSigningPayload(tx))
+    let rejected = vm.validateTransaction(tx)
+    check not rejected.ok
+    check rejected.error == txInvalidSignature
+    check not vm.applyTransaction(tx).ok
+    check vm.state.getBalance(sender) == 1000
+    check vm.gasUsed == 0
+
   test "VM - rejects an empty receiver before moving balances":
     var state = newStateDB()
     let keys = generateKeyPair()
@@ -124,3 +149,14 @@ suite "Core Engine Tests":
     check vm.state.getBalance(sender) == 1000
     check not vm.state.hasAccount("")
     check vm.gasUsed == 0
+
+  test "Consensus - hasQuorum helper is available and unused by block flow":
+    ## Documented out of the production path: validator bookkeeping only.
+    var cons = newConsensus()
+    check cons.addValidator(1, 100)
+    check cons.addValidator(2, 200)
+    check cons.addValidator(3, 300)
+    check cons.calculateQuorum() == 2
+    check cons.hasQuorum(@[1, 2])
+    check not cons.hasQuorum(@[1])
+    check not cons.hasQuorum(@[1, 99])
